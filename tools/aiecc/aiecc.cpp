@@ -107,7 +107,6 @@
 #include <sstream>
 #include <string>
 #include <system_error>
-#include <unistd.h>
 #include <vector>
 
 using namespace llvm;
@@ -1327,7 +1326,7 @@ static LogicalResult atomicCopyFile(StringRef src, StringRef destDir,
     llvm::errs() << "Error: could not create temp file in " << destDir << "\n";
     return failure();
   }
-  ::close(tmpFD);
+  sys::fs::closeFile(tmpFD);
 
   if (std::error_code ec = sys::fs::copy_file(src, tmpPath)) {
     llvm::errs() << "Error: could not copy " << src << " to " << tmpPath << ": "
