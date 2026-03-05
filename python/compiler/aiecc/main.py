@@ -92,6 +92,7 @@ def _create_input_with_addresses_pipeline(
             **{"route-shim-to-tile-ctrl": ctrl_pkt_overlay},
         )
         .add_pass("aie-assign-buffer-addresses", **{"alloc-scheme": scheme})
+        .add_pass("aie-assign-core-link-files")
         .add_pass("aie-vector-transfer-lowering", **{"max-transfer-rank": 1})
     )
 
@@ -348,11 +349,18 @@ def _core_has_nonempty_body(core_op):
 
 
 def generate_cores_list(device_op):
+    def _link_files(c):
+        attr = c.link_files
+        if attr is None:
+            return []
+        return [attr[i].value for i in range(len(attr))]
+
     return [
         (
             c.tile.owner.opview.col.value,
             c.tile.owner.opview.row.value,
             c.elf_file.value if c.elf_file is not None else None,
+            _link_files(c),
         )
         for c in find_ops(
             device_op.operation,
@@ -360,6 +368,7 @@ def generate_cores_list(device_op):
         )
         if c.elf_file is not None
         or c.link_with is not None
+        or c.link_files is not None
         or _core_has_nonempty_body(c)
     ]
 
@@ -452,8 +461,7 @@ def emit_design_bif(
             f"file={root_path}/{device_name}_aie_cdo_enable.bin" if enable_cores else ""
         )
         files = f"{cdo_elfs_file} {cdo_init_file} {cdo_enable_file}"
-    return dedent(
-        f"""\
+    return dedent(f"""\
         all:
         {{
           id_code = 0x14ca8093
@@ -464,8 +472,7 @@ def emit_design_bif(
             {{ type=cdo {files} }}
           }}
         }}
-        """
-    )
+        """)
 
 
 # Extract included files from the given Chess linker script.
@@ -638,7 +645,7 @@ def handle_pass_failure(
 
 
 def corefile(dirname, device, core, ext):
-    col, row, _ = core
+    col, row = core[0], core[1]
     return os.path.join(dirname, f"{device}_core_{col}_{row}.{ext}")
 
 
@@ -958,7 +965,7 @@ class FlowRunner:
             )
         device_elf_paths = await asyncio.gather(*processes)
         elf_paths = {}
-        for (col, row, _), elf_path in zip(cores, device_elf_paths):
+        for (col, row, _, _lf), elf_path in zip(cores, device_elf_paths):
             elf_paths[(col, row)] = elf_path
 
         # copy the elfs left by proess_core to the tmpdir for process_cdo
@@ -1006,7 +1013,16 @@ class FlowRunner:
             )
 
             # fmt: off
-            corecol, corerow, elf_file = core
+            corecol, corerow, elf_file, link_files = core
+
+            # Copy external .o files to tmpdir so linker can find them.
+            for lf in link_files:
+                src = lf if os.path.isabs(lf) else os.path.join(
+                    os.path.dirname(opts.filename) or os.getcwd(), lf)
+                dst = os.path.join(self.tmpdirname, os.path.basename(lf))
+                if src != dst:
+                    shutil.copy2(src, dst)
+
             if not opts.unified:
                 file_opt_core = corefile(self.tmpdirname, device_name, core, "opt.mlir")
                 with Context(), Location.unknown():
@@ -1738,8 +1754,7 @@ class FlowRunner:
         )
 
         sim_script = self.prepend_tmp("aiesim.sh")
-        sim_script_template = dedent(
-            """\
+        sim_script_template = dedent("""\
             #!/bin/sh
             prj_name=$(basename $(dirname $(realpath $0)))
             root=$(dirname $(dirname $(realpath $0)))
@@ -1749,8 +1764,7 @@ class FlowRunner:
             fi
             cd $root
             aiesimulator --pkg-dir=${prj_name}/sim --dump-vcd ${vcd_filename}
-            """
-        )
+            """)
         with open(sim_script, "wt") as sim_script_file:
             sim_script_file.write(sim_script_template)
         stats = os.stat(sim_script)
