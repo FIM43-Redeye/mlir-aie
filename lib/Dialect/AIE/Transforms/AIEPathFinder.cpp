@@ -371,12 +371,19 @@ bool Pathfinder::addFixedConnection(SwitchboxOp switchboxOp) {
   for (ConnectOp connectOp : switchboxOp.getOps<ConnectOp>()) {
     bool found = false;
     for (size_t i = 0; i < sb.srcPorts.size(); i++) {
+      if (sb.srcPorts[i] != connectOp.sourcePort())
+        continue;
       for (size_t j = 0; j < sb.dstPorts.size(); j++) {
-        if (sb.srcPorts[i] == connectOp.sourcePort() &&
-            sb.dstPorts[j] == connectOp.destPort() &&
+        if (sb.dstPorts[j] == connectOp.destPort() &&
             sb.connectivity[i][j] == Connectivity::AVAILABLE) {
-          sb.connectivity[i][j] = Connectivity::INVALID;
           found = true;
+        }
+        // A circuit-switched ConnectOp monopolizes the entire source port --
+        // no other circuit or packet flow can share it.  Invalidate all
+        // destinations reachable from this source so the pathfinder will
+        // not attempt to route through any of them.
+        if (sb.connectivity[i][j] == Connectivity::AVAILABLE) {
+          sb.connectivity[i][j] = Connectivity::INVALID;
         }
       }
     }
@@ -460,6 +467,12 @@ Pathfinder::dijkstraShortestPaths(PathEndPoint src) {
           std::find(sb.dstPorts.begin(), sb.dstPorts.end(), dest.port));
       assert(i < sb.srcPorts.size());
       assert(j < sb.dstPorts.size());
+      // Never route through edges that have been marked INVALID (e.g. by
+      // addFixedConnection).  This is defense-in-depth -- the channel
+      // discovery above already filters intra-tile INVALID edges, but
+      // inter-tile edges bypass that check.
+      if (sb.connectivity[i][j] == Connectivity::INVALID)
+        continue;
       bool relax = distance[src] + sb.demand[i][j] < distance[dest];
       if (colors.count(dest) == 0) {
         // was WHITE
