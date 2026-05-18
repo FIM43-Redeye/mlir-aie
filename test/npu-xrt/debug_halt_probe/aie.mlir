@@ -1,4 +1,11 @@
-//===- aie.mlir --- debug_halt_probe (Phase A spike) -----------*- MLIR -*-===//
+//===- aie.mlir ------------------------------------------------*- MLIR -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+// debug_halt_probe (Phase A spike).
 // Probe kernel: minimal straight-line core writes 3 sentinel markers to
 // output_buffer, then ends. Runtime sequence issues one control-packet
 // register write to a compute-tile debug register to prove the authoring
@@ -18,7 +25,6 @@ module {
       aie.packet_source<%tile_0_2, DMA : 0>
       aie.packet_dest<%tile_0_0, DMA : 1>
     }
-    aie.flow(%tile_0_0, DMA : 1, %tile_0_2, DMA : 1)
 
     %core_0_2 = aie.core(%tile_0_2) {
       %c0 = arith.constant 0 : index
@@ -54,6 +60,9 @@ module {
       %c8_i64 = arith.constant 8 : i64
       // SPIKE: prove a control-packet write to a compute-tile debug register
       // is expressible. Debug_Control0 = 0 is innocuous (no-op semantics).
+      // Offset 0x32010 = XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL0, per aie-rt
+      // driver/src/global/xaiemlgbl_params.h:2452 (DEBUG_HALT_BIT @ bit 0,
+      // SINGLE_STEP_COUNT @ bits 2-5). Cite-pattern for later G1/G2 offsets.
       aiex.npu.write32 {address = 0x32010 : ui32, column = 0 : i32, row = 2 : i32, value = 0 : ui32}
       // DMA the marker buffer back to the host.
       aiex.npu.dma_memcpy_nd(%arg0[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c8_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 1 : i64, issue_token = true, metadata = @out0} : memref<8xi32>

@@ -35,6 +35,10 @@ SPIKE_PASS
 The EMU log should show a control-packet/register-write line for tile (0,2)
 offset 0x32010.
 
+**Validation status:** EMU-only so far (`--no-hw`). Hardware validation is
+pending -- later plan tasks drop the `--no-hw` flag and run the probe on real
+NPU1 silicon.
+
 ## Spec reference
 
 Experiment details (G1 halt timing, G2 count-step, register offsets, expected

@@ -1,20 +1,28 @@
-//===- test.cpp --- debug_halt_probe host harness ----------------*- C++
-//-*-===//
-// Phase A spike: reads 8 marker words back from the emulator and verifies
-// the first three are 0xAA/0xBB/0xCC. The runtime sequence also issues one
-// aiex.npu.write32 to compute-tile (0,2) Debug_Control0 to prove the
-// control-packet authoring mechanism reaches the tile.
+//===- test.cpp -------------------------------------------------*- C++ -*-===//
+//
+// This file is licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
 //===----------------------------------------------------------------------===//
-#include "cxxopts.hpp"
-#include "test_utils.h"
-#include "xrt/xrt_bo.h"
-#include "xrt/xrt_device.h"
-#include "xrt/xrt_kernel.h"
+// debug_halt_probe host harness (Phase A spike).
+// Reads 8 marker words back from the emulator and verifies the first three
+// are 0xAA/0xBB/0xCC. The runtime sequence also issues one aiex.npu.write32
+// to compute-tile (0,2) Debug_Control0 to prove the control-packet authoring
+// mechanism reaches the tile.
+//===----------------------------------------------------------------------===//
+
 #include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <string>
 #include <vector>
+
+#include "cxxopts.hpp"
+#include "test_utils.h"
+#include "xrt/xrt_bo.h"
+#include "xrt/xrt_device.h"
+#include "xrt/xrt_kernel.h"
 
 int main(int argc, const char *argv[]) {
   cxxopts::Options options("debug_halt_probe");
