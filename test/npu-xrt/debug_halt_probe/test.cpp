@@ -8,12 +8,13 @@
 // debug_halt_probe host harness (Phase A -- Exp1 redesign: control-packet
 // OP_READ readback + schedule-derived verdict).
 //
-// Task 3 discovery: the lock-gated @out0 marker DMA hangs on a halted core
-// (the core never releases output_lock4), and the compiler reordered the
-// stores so a source-order verdict is inverted.  This harness reads
-// output_buffer slots and Core_Status via control-packet OP_READ (which works
-// on a halted core, prior art: add_one_ctrl_packet) and computes the verdict
-// from the disassembled store schedule (not source order).
+// Task 3 discovery: a lock-gated marker DMA hangs on a halted core (the core
+// never releases its lock -> dma_wait blocks forever -> run.wait() timeout ->
+// NPU wedge), and the compiler reordered the stores so a source-order verdict
+// is inverted.  There is therefore NO marker-DMA path: this harness reads
+// output_buffer slots and Core_Status SOLELY via control-packet OP_READ
+// (which works on a halted core, prior art: add_one_ctrl_packet) and computes
+// the verdict from the disassembled store schedule (not source order).
 //
 // OUTBUF_ADDR = output_buffer tile-local address = p0 & 0xFFFF, where p0 is
 // the core's 20-bit pointer to output_buffer[0] from llvm-objdump-aie.
@@ -48,12 +49,23 @@ static constexpr uint32_t OUTBUF_ADDR = 0x0400;
 // Core_Status register offset (tile-local, compute-tile module).
 // XAIEMLGBL_CORE_MODULE_CORE_STATUS, per aie-rt
 // driver/src/global/xaiemlgbl_params.h.
-// bit 0 = core enabled/running; bit 16 = debug-halted (Halt_Event bit).
+// bit 16 = DEBUG_HALT: the verdict's SOLE halted signal.  bit 0 = ENABLE is
+// no longer used by the verdict (ENABLE-stays-1-while-halted was an unverified
+// HW assumption; DEBUG_HALT=1 alone proves the core ran and is debug-halted).
+// On EMU, an OP_READ of this register returns 0x0 even for a completed core:
+// control-packet reads of core/debug registers are not wired to core_debug --
+// a known emulator read-side routing gap (symmetric to the write-side gap that
+// drops the breakpoint-arming writes), not a probe bug.  HW populates
+// DEBUG_HALT/ENABLE correctly; the AFTER/BEFORE_COMMIT verdicts are therefore
+// hardware-only (Task 5).
 static constexpr uint32_t CORE_STATUS_ADDR = 0x32004;
 
 // Number of ctrl-in words (one OP_READ header per slot + one for Core_Status).
+// To extend (Task 6 reads 8 marker slots): bump this, add slots to s[]/the
+// ctrlPackets list, and add a packet block in aie.mlir.
 static constexpr int NUM_READ_PKTS = 5;
-// ctrl-out receives one response word per OP_READ packet.
+// ctrl-out receives one response word per OP_READ packet.  This constant
+// drives the bo_ctrlOut allocation below.
 static constexpr int CTRL_OUT_WORDS = NUM_READ_PKTS;
 
 int main(int argc, const char *argv[]) {
@@ -86,15 +98,14 @@ int main(int argc, const char *argv[]) {
   //   group_id(1) = instr BO (implicit, always first)
   //   group_id(3) = ctrl-out BO (%arg0): receives OP_READ responses
   //   group_id(4) = ctrl-in BO  (%arg1): holds assembled OP_READ headers
-  //   group_id(5) = output BO   (%arg2): marker DMA readback (EMU baseline)
+  // (No output BO: the marker-DMA path was removed -- it would dma_wait
+  // forever on a halted core.  The OP_READ responses are the sole output.)
   auto bo_instr = xrt::bo(device, instr_v.size() * sizeof(int),
                           XCL_BO_FLAGS_CACHEABLE, kernel.group_id(1));
-  auto bo_ctrlOut = xrt::bo(device, 8 * sizeof(uint32_t),
+  auto bo_ctrlOut = xrt::bo(device, CTRL_OUT_WORDS * sizeof(uint32_t),
                             XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(3));
   auto bo_ctrlIn = xrt::bo(device, NUM_READ_PKTS * sizeof(uint32_t),
                            XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(4));
-  auto bo_out = xrt::bo(device, 8 * sizeof(uint32_t), XRT_BO_FLAGS_HOST_ONLY,
-                        kernel.group_id(5));
 
   // Assemble OP_READ control-packet headers into ctrl-in BO.
   // Header layout (from xdna-emu src/device/control_packets/parser.rs):
@@ -141,17 +152,15 @@ int main(int argc, const char *argv[]) {
   bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
   bo_ctrlIn.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-  // Kernel args: opcode, instr BO, instr count, ctrl-out, ctrl-in, out
+  // Kernel args: opcode, instr BO, instr count, ctrl-out, ctrl-in
   unsigned int opcode = 3;
-  auto run =
-      kernel(opcode, bo_instr, instr_v.size(), bo_ctrlOut, bo_ctrlIn, bo_out);
+  auto run = kernel(opcode, bo_instr, instr_v.size(), bo_ctrlOut, bo_ctrlIn);
   ert_cmd_state r = run.wait();
   if (r != ERT_CMD_STATE_COMPLETED) {
     std::cout << "Kernel did not complete. Returned status: " << r << "\n";
     return 1;
   }
 
-  bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
   bo_ctrlOut.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
   // Parse ctrl-out response words.
@@ -167,10 +176,14 @@ int main(int argc, const char *argv[]) {
     s[i] = ctrlOut[i];
   uint32_t cs = ctrlOut[4];
 
-  // Schedule from llvm-objdump-aie (see aie.mlir TRAP_PC comment):
+  // Schedule from llvm-objdump-aie (full schedule in aie.mlir TRAP_PC comment):
   //   trap bundle 0x114 -> s[1]=0xBB ; strictly-later 0x11c -> s[0]=0xAA
   //   later -> s[3]=1 ; later -> s[2]=0xCC
-  bool halted = (cs & (1u << 16)) && (cs & (1u << 0));
+  bool halted = (cs & (1u << 16)) != 0; // DEBUG_HALT bit alone --
+                                        // ENABLE-stays-1-while-halted is an
+                                        // unverified HW assumption;
+                                        // DEBUG_HALT=1 already proves the core
+                                        // ran and is debug-halted
   std::cout << "SLOTS: s0=" << s[0] << " s1=" << s[1] << " s2=" << s[2]
             << " s3=" << s[3] << " CORE_STATUS=0x" << std::hex << cs << std::dec
             << " HALTED=" << (halted ? 1 : 0) << "\n";

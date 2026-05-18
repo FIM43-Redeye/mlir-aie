@@ -10,14 +10,18 @@
 // (pre-trap / trap-bundle / post-trap / done sentinel) to output_buffer, then
 // ends. The runtime sequence arms a PC_Event0 breakpoint (+ Debug_Control2
 // PC_Event_Halt) at the trap bundle via control-packet register writes to
-// compute-tile (0,2), before starting the readback. Observation is via
-// control-packet OP_READ of output_buffer slots and Core_Status while the
-// core is halted (core-independent -- works even when the core is stopped).
-// The verdict is computed from the disassembled store schedule, not source
-// order (the compiler reordered the stores; see TRAP_PC comment below).
-// The lock-gated @out0 marker DMA is preserved for the EMU no-trap baseline
-// (where the core runs to completion); on real HW with a halted core it
-// cannot fire because the core never releases output_lock4.
+// compute-tile (0,2), before starting the readback. Observation is SOLELY
+// via control-packet OP_READ of output_buffer slots and Core_Status while
+// the core is halted (core-independent -- works even when the core is
+// stopped). The verdict is computed from the disassembled store schedule,
+// not source order (the compiler reordered the stores; see TRAP_PC comment
+// below).
+//
+// There is NO marker-DMA transport: a lock-gated DMA of output_buffer would
+// dma_wait forever on a halted core (the core never releases its lock),
+// timing out run.wait() and wedging the NPU. The OP_READ path reads the
+// markers directly out of tile data memory regardless of core state, so the
+// DMA transport is fully redundant and removed.
 //===----------------------------------------------------------------------===//
 module {
   aie.device(NPUDEVICE) {
@@ -41,12 +45,12 @@ module {
       aie.packet_source<%tile_0_2, TileControl : 0>
       aie.packet_dest<%tile_0_0, DMA : 0>
     }
-    // Packet flow for marker DMA readback (preserved for EMU no-trap baseline).
-    aie.packet_flow(0x3) {
-      aie.packet_source<%tile_0_2, DMA : 0>
-      aie.packet_dest<%tile_0_0, DMA : 1>
-    }
 
+    // The core still writes the four markers + uses output_lock5/4 (acquire on
+    // entry, release on exit) so the schedule and trap timing are identical to
+    // a real lock-gated kernel.  Only the DMA *transport* of output_buffer is
+    // removed -- the markers are read straight out of tile data memory by the
+    // OP_READ control packets below.
     %core_0_2 = aie.core(%tile_0_2) {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
@@ -65,23 +69,10 @@ module {
       aie.end
     }
 
-    %mem_0_2 = aie.mem(%tile_0_2) {
-      %0 = aie.dma_start(MM2S, 0, ^bb1, ^bb2)
-    ^bb1:
-      aie.use_lock(%output_lock4, AcquireGreaterEqual, 1)
-      aie.dma_bd(%output_buffer : memref<8xi32>, 0, 8) {packet = #aie.packet_info<pkt_id = 3, pkt_type = 0>}
-      aie.use_lock(%output_lock5, Release, 1)
-      aie.next_bd ^bb1
-    ^bb2:
-      aie.end
-    }
-
-    // ctrl0: shim DMA S2MM channel 0 -- receives OP_READ responses from tile (0,2)
-    // TileControl (packet flow 0x2).  This is the control-packet response BO.
-    // out0: shim DMA S2MM channel 1 -- receives marker DMA from tile (0,2) DMA
-    // channel 0 (packet flow 0x3).  Preserved for the EMU no-trap baseline.
+    // ctrl0: shim DMA S2MM channel 0 -- receives OP_READ responses from tile
+    // (0,2) TileControl (packet flow 0x2).  This is the control-packet
+    // response BO and the sole observation path.
     aie.shim_dma_allocation @ctrl0 (%tile_0_0, S2MM, 0)
-    aie.shim_dma_allocation @out0 (%tile_0_0, S2MM, 1)
 
     // Shim DMA BD0 template for the ctrl-in MM2S push path.
     // Word layout (shim DMA BD, base 0x1d000 = BD0 in column 0):
@@ -98,18 +89,18 @@ module {
     // Runtime sequence args:
     //   %arg0 = ctrl-out BO  (receives OP_READ responses -- ctrl_pkt_resp)
     //   %arg1 = ctrl-in BO   (holds assembled OP_READ request headers)
-    //   %arg2 = output BO    (marker DMA readback -- preserved for EMU baseline)
     //
     // group_id mapping (kernel signature, 0-indexed from aiecc):
     //   group_id(1) = instr BO (implicit, always first)
     //   group_id(3) = %arg0 ctrl-out
     //   group_id(4) = %arg1 ctrl-in
-    //   group_id(5) = %arg2 output
-    aie.runtime_sequence @seq(%arg0: memref<8xi32>, %arg1: memref<8xi32>, %arg2: memref<8xi32>) {
+    aie.runtime_sequence @seq(%arg0: memref<8xi32>, %arg1: memref<8xi32>) {
       %c0_i64 = arith.constant 0 : i64
       %c1_i64 = arith.constant 1 : i64
+      // One read packet per target: 4 marker slots + Core_Status = 5 reads.
+      // To add reads (Task 6 extends this probe to 8 marker slots): bump this
+      // count, add a packet block below, and extend test.cpp s[]/NUM_READ_PKTS.
       %c5_i64 = arith.constant 5 : i64
-      %c8_i64 = arith.constant 8 : i64
 
       // Arm PC_Event0 at the trap bundle (VALID bit 31 | 14-bit PC).
       // TRAP_PC = 0x114: the VLIW bundle address of the memref.store to
@@ -134,12 +125,9 @@ module {
       aiex.npu.write32 {address = 0x32018 : ui32, column = 0 : i32, row = 2 : i32, value = 0x1 : ui32}
 
       // --- Control-packet OP_READ readback ---
-      // Register ctrl-out (S2MM ch0) and marker-out (S2MM ch1) receivers first.
-      // ctrl-out receives exactly 5 words (one response word per OP_READ packet).
+      // Register ctrl-out (S2MM ch0) receiver first: exactly 5 words (one
+      // response word per OP_READ packet).
       aiex.npu.dma_memcpy_nd(%arg0[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c5_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 1 : i64, issue_token = true, metadata = @ctrl0} : memref<8xi32>
-      // marker-out (preserved for EMU no-trap baseline; on HW with halted core
-      // this will not fire, but ctrl-packet readback does not depend on it).
-      aiex.npu.dma_memcpy_nd(%arg2[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c8_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 2 : i64, issue_token = true, metadata = @out0} : memref<8xi32>
 
       // Set up the shim DMA BD0 (MM2S ch0) template for ctrl-in pushes.
       // address_patch will fill in the buffer pointer per packet.
@@ -155,7 +143,9 @@ module {
       // below.  Self-check: the EMU no-trap baseline must return s[0]=170 (0xAA),
       // s[1]=187 (0xBB), s[2]=204 (0xCC), s[3]=1 from the five read packets;
       // if any slot is garbage, OUTBUF_ADDR is wrong.
-      // One-time MM2S channel 0 packet-type setup (per add_one_ctrl_packet idiom).
+      // One-time MM2S channel 0 packet-type setup (per add_one_ctrl_packet idiom;
+      // order relative to address_patch is immaterial -- both prepare the BD
+      // before the write32 push).
       aiex.npu.maskwrite32 {address = 0x1d210 : ui32, column = 0 : i32, row = 0 : i32, mask = 0x00000F00 : ui32, value = 0x400 : ui32}
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 0 : i32}
       aiex.npu.write32 {address = 0x1d214 : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
@@ -176,8 +166,9 @@ module {
       aiex.npu.write32 {address = 0x1d214 : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 0 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 4: OP_READ Core_Status register at 0x32004.
-      // Core_Status: bit 0 = core enabled/running, bit 16 = debug-halted.
+      // Packet 4: OP_READ Core_Status register at 0x32004 (CORE_STATUS_ADDR).
+      // Core_Status: bit 16 = DEBUG_HALT (the verdict's sole halted signal),
+      // bit 0 = ENABLE (no longer used by the verdict).
       // XAIEMLGBL_CORE_MODULE_CORE_STATUS offset per aie-rt
       // driver/src/global/xaiemlgbl_params.h.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 16 : i32}
@@ -186,8 +177,6 @@ module {
 
       // Wait for all ctrl-out response words to arrive.
       aiex.npu.dma_wait {symbol = @ctrl0}
-      // Wait for marker DMA (EMU no-trap baseline; no-op on HW with halted core).
-      aiex.npu.dma_wait {symbol = @out0}
     }
   }
 }

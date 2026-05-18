@@ -33,15 +33,18 @@ compute-tile (0,2):
 
 ## Observation method (redesigned in Task 4)
 
-**Task 3 discovery**: the lock-gated `@out0` marker DMA cannot complete when
-the core is halted (the core never releases `output_lock4`), so waiting on it
-hangs. Also, source-order verdict is inverted by the compiler's store
-reordering.
+**Task 3 discovery**: a lock-gated marker DMA cannot complete when the core
+is halted (the core never releases its lock), so `dma_wait` hangs forever ->
+`run.wait()` times out -> the NPU wedges. Also, source-order verdict is
+inverted by the compiler's store reordering.
 
-**Task 4 redesign**: observation via control-packet OP_READ. After the
-breakpoint-arming writes, the runtime sequence sends five OP_READ control
-packets to compute-tile (0,2) via the `packet_flow(0x1)/(0x2)` TileControl
-path (same idiom as `add_one_ctrl_packet`):
+**Task 4 redesign + fixup**: observation SOLELY via control-packet OP_READ;
+the marker-DMA path is removed entirely (the OP_READ reads the markers
+straight out of tile data memory, so the DMA transport was fully redundant
+and a HW-wedge hazard). After the breakpoint-arming writes, the runtime
+sequence sends five OP_READ control packets to compute-tile (0,2) via the
+`packet_flow(0x1)/(0x2)` TileControl path (same idiom as
+`add_one_ctrl_packet`):
 
 | Packet | Address | Reads |
 |--------|---------|-------|
@@ -49,7 +52,7 @@ path (same idiom as `add_one_ctrl_packet`):
 | 1 | `OUTBUF_ADDR + 4` | `output_buffer[1]` → s[1] |
 | 2 | `OUTBUF_ADDR + 8` | `output_buffer[2]` → s[2] |
 | 3 | `OUTBUF_ADDR + 12` | `output_buffer[3]` → s[3] |
-| 4 | `0x32004` | `Core_Status` (bit 0 = running, bit 16 = debug-halted) |
+| 4 | `0x32004` | `Core_Status` (bit 16 = DEBUG_HALT, the sole halted signal) |
 
 `OUTBUF_ADDR = 0x0400` — derived: `output_buffer` base pointer from
 `llvm-objdump-aie` (Task 3 disasm: `p0 = 0x70400`); tile-local offset =
@@ -58,14 +61,22 @@ baseline returning `s[0]=170, s[1]=187, s[2]=204, s[3]=1`. Re-derive if
 the kernel or allocation changes (see aie.mlir and test.cpp re-derivation
 warning comments).
 
-The `@out0` marker DMA path is preserved in the MLIR but is not the primary
-verdict source. On EMU (no halt) it fires correctly; on HW with a halted core
-it cannot fire (lock never released by the halted core).
+The core still writes the four markers and uses its locks (acquire/release)
+so the trap timing is identical to a real lock-gated kernel; only the DMA
+*transport* of `output_buffer` is gone.
+
+On EMU, an OP_READ of `Core_Status` (0x32004) returns `0x0` even for a
+completed core: control-packet reads of core/debug registers are not wired
+to `core_debug` -- a known emulator read-side routing gap (symmetric to the
+write-side gap that drops the breakpoint-arming writes), not a probe bug.
+HW populates DEBUG_HALT/ENABLE correctly, so EMU shows `HALTED=0` even
+post-completion and cannot exercise AFTER/BEFORE_COMMIT -- that is Task 5
+(hardware).
 
 ## Schedule-derived verdict
 
 ```
-halted = Core_Status[16] && Core_Status[0]
+halted = Core_Status[16]   // DEBUG_HALT bit alone (ENABLE not used)
 
 if !halted:
   s[0]==0xAA && s[1]==0xBB && s[2]==0xCC && s[3]==1  => NO_TRAP_OR_RAN_TO_END
@@ -89,9 +100,11 @@ Results land in `build/bridge-test-results/latest/`.
 
 ## Current status
 
-**EMU mechanism validated (Task 4).** The control-packet OP_READ readback
-returns correct tile-data-memory values. On EMU the core does not halt
-(debug-register writes land in a catch-all); the core runs to completion:
+**EMU mechanism validated (Task 4 + fixup).** The control-packet OP_READ
+readback returns correct tile-data-memory values. On EMU the core does not
+halt (debug-register writes land in a catch-all), and an OP_READ of
+Core_Status returns 0x0 (read-side core_debug routing gap, documented above);
+the core runs to completion:
 
 ```
 SLOTS: s0=170 s1=187 s2=204 s3=1 CORE_STATUS=0x0 HALTED=0
