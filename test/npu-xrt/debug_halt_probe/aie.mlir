@@ -62,14 +62,21 @@ module {
       %c0_i64 = arith.constant 0 : i64
       %c1_i64 = arith.constant 1 : i64
       %c8_i64 = arith.constant 8 : i64
-      // SCAFFOLD: placeholder control-packet write proving the authoring path
-      // reaches a compute-tile debug register. Debug_Control0 = 0 is innocuous
-      // (no-op semantics). Task 3 REPLACES this with the actual PC_Event0 +
-      // Debug_Control2 breakpoint-arming writes that trap the core mid-kernel.
-      // Offset 0x32010 = XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL0, per aie-rt
-      // driver/src/global/xaiemlgbl_params.h:2452 (DEBUG_HALT_BIT @ bit 0,
-      // SINGLE_STEP_COUNT @ bits 2-5). Cite-pattern for later G1/G2 offsets.
-      aiex.npu.write32 {address = 0x32010 : ui32, column = 0 : i32, row = 2 : i32, value = 0 : ui32}
+      // Arm PC_Event0 at the trap bundle (VALID bit 31 | 14-bit PC).
+      // TRAP_PC = 0x114 (bundle storing 0xBB/187 to output_buffer[1]),
+      // TRAP_PC14 = 0x114 & 0x3FFF = 0x0114.
+      // value = 0x80000000 | 0x0114 = 0x80000114.
+      // Offset 0x32020 = XAIEMLGBL_CORE_MODULE_PC_EVENT0, per aie-rt
+      // driver/src/global/xaiemlgbl_params.h:2536.  VALID @ bit 31
+      // (XAIEMLGBL_CORE_MODULE_PC_EVENT0_VALID_LSB=31, line 2539);
+      // PC_ADDRESS @ bits 13:0 (XAIEMLGBL_CORE_MODULE_PC_EVENT0_PC_ADDRESS_LSB=0,
+      // line 2543, WIDTH=14, line 2544).
+      aiex.npu.write32 {address = 0x32020 : ui32, column = 0 : i32, row = 2 : i32, value = 0x80000114 : ui32}
+      // Debug_Control2[0] = PC_Event_Halt: halt core when a PC event fires.
+      // Offset 0x32018 = XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL2, per aie-rt
+      // driver/src/global/xaiemlgbl_params.h:2484.  PC_EVENT_HALT @ bit 0
+      // (XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL2_PC_EVENT_HALT_LSB=0, line 2499).
+      aiex.npu.write32 {address = 0x32018 : ui32, column = 0 : i32, row = 2 : i32, value = 0x1 : ui32}
       // DMA the marker buffer back to the host.
       aiex.npu.dma_memcpy_nd(%arg0[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c8_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 1 : i64, issue_token = true, metadata = @out0} : memref<8xi32>
       aiex.npu.dma_wait {symbol = @out0}
