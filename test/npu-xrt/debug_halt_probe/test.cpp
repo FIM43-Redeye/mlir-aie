@@ -16,6 +16,13 @@
 // (which works on a halted core, prior art: add_one_ctrl_packet) and computes
 // the verdict from the disassembled store schedule (not source order).
 //
+// Task 5 revision: a blocking objectfifo gate (@gate, 1xi32, depth 1) is
+// added to prevent the arming-before-run race observed in HW attempt 1 (the
+// CDO enables the core before @seq arming writes reach the tile).  The gate
+// @seq arg is %arg2 -> group_id(5).  The host writes a nonzero i32 token
+// into bo_gate and syncs it to device before launching the kernel; @seq feeds
+// it to the core via dma_memcpy_nd AFTER the arming writes.
+//
 // OUTBUF_ADDR = output_buffer tile-local address = p0 & 0xFFFF, where p0 is
 // the core's 20-bit pointer to output_buffer[0] from llvm-objdump-aie.
 // Task 3 disasm: p0 = 0x70400 => OUTBUF_ADDR = 0x0400.
@@ -57,7 +64,7 @@ static constexpr uint32_t OUTBUF_ADDR = 0x0400;
 // a known emulator read-side routing gap (symmetric to the write-side gap that
 // drops the breakpoint-arming writes), not a probe bug.  HW populates
 // DEBUG_HALT/ENABLE correctly; the AFTER/BEFORE_COMMIT verdicts are therefore
-// hardware-only (Task 5).
+// hardware-only (Task 5b).
 static constexpr uint32_t CORE_STATUS_ADDR = 0x32004;
 
 // Number of ctrl-in words (one OP_READ header per slot + one for Core_Status).
@@ -98,6 +105,7 @@ int main(int argc, const char *argv[]) {
   //   group_id(1) = instr BO (implicit, always first)
   //   group_id(3) = ctrl-out BO (%arg0): receives OP_READ responses
   //   group_id(4) = ctrl-in BO  (%arg1): holds assembled OP_READ headers
+  //   group_id(5) = gate BO     (%arg2): 1xi32 token fed to @gate objectfifo
   // (No output BO: the marker-DMA path was removed -- it would dma_wait
   // forever on a halted core.  The OP_READ responses are the sole output.)
   auto bo_instr = xrt::bo(device, instr_v.size() * sizeof(int),
@@ -106,6 +114,10 @@ int main(int argc, const char *argv[]) {
                             XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(3));
   auto bo_ctrlIn = xrt::bo(device, NUM_READ_PKTS * sizeof(uint32_t),
                            XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(4));
+  // gate BO: 1 x i32 token; any nonzero value works (the core only blocks
+  // on the lock, not the value).  group_id(5) = @seq %arg2 (third seq arg).
+  auto bo_gate = xrt::bo(device, sizeof(uint32_t), XRT_BO_FLAGS_HOST_ONLY,
+                         kernel.group_id(5));
 
   // Assemble OP_READ control-packet headers into ctrl-in BO.
   // Header layout (from xdna-emu src/device/control_packets/parser.rs):
@@ -146,15 +158,22 @@ int main(int argc, const char *argv[]) {
   uint32_t *bufCtrlIn = bo_ctrlIn.map<uint32_t *>();
   memcpy(bufCtrlIn, ctrlPackets.data(), ctrlPackets.size() * sizeof(uint32_t));
 
+  // Write nonzero gate token (value 1; the core only needs the lock to be
+  // acquired, not any particular token value).
+  uint32_t *bufGate = bo_gate.map<uint32_t *>();
+  bufGate[0] = 1u;
+
   uint32_t *bufInstr = bo_instr.map<uint32_t *>();
   memcpy(bufInstr, instr_v.data(), instr_v.size() * sizeof(uint32_t));
 
   bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
   bo_ctrlIn.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+  bo_gate.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
-  // Kernel args: opcode, instr BO, instr count, ctrl-out, ctrl-in
+  // Kernel args: opcode, instr BO, instr count, ctrl-out, ctrl-in, gate
   unsigned int opcode = 3;
-  auto run = kernel(opcode, bo_instr, instr_v.size(), bo_ctrlOut, bo_ctrlIn);
+  auto run =
+      kernel(opcode, bo_instr, instr_v.size(), bo_ctrlOut, bo_ctrlIn, bo_gate);
   ert_cmd_state r = run.wait();
   if (r != ERT_CMD_STATE_COMPLETED) {
     std::cout << "Kernel did not complete. Returned status: " << r << "\n";
@@ -176,9 +195,14 @@ int main(int argc, const char *argv[]) {
     s[i] = ctrlOut[i];
   uint32_t cs = ctrlOut[4];
 
-  // Schedule from llvm-objdump-aie (full schedule in aie.mlir TRAP_PC comment):
-  //   trap bundle 0x114 -> s[1]=0xBB ; strictly-later 0x11c -> s[0]=0xAA
-  //   later -> s[3]=1 ; later -> s[2]=0xCC
+  // Schedule from llvm-objdump-aie (gated build, Task 5 re-derivation):
+  //   trap bundle  0x184 -> s[1]=0xBB  (st dj0,[p0,#4]; dj0=0xBB, p0=0x70400)
+  //   strictly-later 0x18c -> s[0]=0xAA  (st m0,[p0],#8; m0=0xAA)
+  //   later       0x192 -> s[3]=1
+  //   later       0x1a0 -> s[2]=0xCC
+  // TRAP_PC=0x184; TRAP_PC14=0x184; PC_Event0=0x80000184.
+  // OUTBUF_ADDR=0x0400 (p0=0x70400 from disasm, tile-local = 0x70400&0xFFFF).
+  // Re-derive if the kernel changes (see aie.mlir TRAP_PC comment).
   bool halted = (cs & (1u << 16)) != 0; // DEBUG_HALT bit alone --
                                         // ENABLE-stays-1-while-halted is an
                                         // unverified HW assumption;
