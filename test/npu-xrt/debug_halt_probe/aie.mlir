@@ -5,11 +5,12 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-// debug_halt_probe (Phase A spike).
-// Probe kernel: minimal straight-line core writes 3 sentinel markers to
-// output_buffer, then ends. Runtime sequence issues one control-packet
-// register write to a compute-tile debug register to prove the authoring
-// mechanism. Marker buffer is DMA'd back to the host.
+// debug_halt_probe (Phase A -- Exp1: separable pre/trap/post/done markers).
+// Probe kernel: minimal straight-line core writes 4 sentinel markers
+// (pre-trap / trap-bundle / post-trap / done sentinel) to output_buffer, then
+// ends. Runtime sequence issues one control-packet register write to a
+// compute-tile debug register to prove the authoring mechanism. Marker buffer
+// is DMA'd back to the host.
 //===----------------------------------------------------------------------===//
 module {
   aie.device(NPUDEVICE) {
@@ -61,8 +62,10 @@ module {
       %c0_i64 = arith.constant 0 : i64
       %c1_i64 = arith.constant 1 : i64
       %c8_i64 = arith.constant 8 : i64
-      // SPIKE: prove a control-packet write to a compute-tile debug register
-      // is expressible. Debug_Control0 = 0 is innocuous (no-op semantics).
+      // SCAFFOLD: placeholder control-packet write proving the authoring path
+      // reaches a compute-tile debug register. Debug_Control0 = 0 is innocuous
+      // (no-op semantics). Task 3 REPLACES this with the actual PC_Event0 +
+      // Debug_Control2 breakpoint-arming writes that trap the core mid-kernel.
       // Offset 0x32010 = XAIEMLGBL_CORE_MODULE_DEBUG_CONTROL0, per aie-rt
       // driver/src/global/xaiemlgbl_params.h:2452 (DEBUG_HALT_BIT @ bit 0,
       // SINGLE_STEP_COUNT @ bits 2-5). Cite-pattern for later G1/G2 offsets.

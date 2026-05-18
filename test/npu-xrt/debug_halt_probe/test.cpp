@@ -5,9 +5,12 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-// debug_halt_probe host harness (Phase A spike).
-// Reads 8 marker words back from the emulator and verifies the first three
-// are 0xAA/0xBB/0xCC. The runtime sequence also issues one aiex.npu.write32
+// debug_halt_probe host harness (Phase A -- Exp1: separable pre/trap/post/done
+// markers).
+// Reads the marker buffer back from the emulator and prints the four slot
+// markers (out0..out3), a BASELINE verdict (all four markers present, core
+// reached aie.end), and a TRAP_VERDICT classifying a Task-3 trap as
+// before/after-commit. The runtime sequence also issues one aiex.npu.write32
 // to compute-tile (0,2) Debug_Control0 to prove the control-packet authoring
 // mechanism reaches the tile.
 //===----------------------------------------------------------------------===//
@@ -76,9 +79,11 @@ int main(int argc, const char *argv[]) {
   bool baseline =
       (out[0] == 0xAA && out[1] == 0xBB && out[2] == 0xCC && out[3] == 1);
   // Trap armed (Task 3): out0 always lands (pre-trap).
-  //  - out1==0xBB && out2==0    -> trap bundle COMMITTED -> HALT AFTER COMMIT
-  //  - out1==0    && out2==0    -> trap bundle DID NOT commit -> HALT BEFORE
+  //  - out1==0xBB && out2==0 -> trap bundle COMMITTED -> HALT AFTER COMMIT
+  //  - out1==0    && out2==0 -> trap bundle DID NOT commit -> HALT BEFORE
   //  COMMIT
+  // out2 (POST-trap store) must be 0: any trap halts the core before it reaches
+  // the post-trap store.
   // out3 (done sentinel) must be 0 when trapped (core halted, never reached
   // end).
   std::cout << "BASELINE:" << (baseline ? "YES" : "NO") << "\n";
@@ -88,6 +93,9 @@ int main(int argc, const char *argv[]) {
       std::cout << "AFTER_COMMIT\n";
     else if (out[1] == 0 && out[2] == 0)
       std::cout << "BEFORE_COMMIT\n";
+    // AMBIGUOUS: out1/out2 in an unexpected combination (e.g. post-trap landed
+    // but trap didn't) -- treat as a probe anomaly to investigate, not a clean
+    // before/after result.
     else
       std::cout << "AMBIGUOUS\n";
   } else {
