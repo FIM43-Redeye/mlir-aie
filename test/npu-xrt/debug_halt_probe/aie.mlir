@@ -8,9 +8,11 @@
 // debug_halt_probe (Phase A -- Exp1: separable pre/trap/post/done markers).
 // Probe kernel: minimal straight-line core writes 4 sentinel markers
 // (pre-trap / trap-bundle / post-trap / done sentinel) to output_buffer, then
-// ends. Runtime sequence issues one control-packet register write to a
-// compute-tile debug register to prove the authoring mechanism. Marker buffer
-// is DMA'd back to the host.
+// ends. The runtime sequence arms a PC_Event0 breakpoint (+ Debug_Control2
+// PC_Event_Halt) at the trap bundle via control-packet register writes to
+// compute-tile (0,2), before starting the readback. Marker buffer is DMA'd
+// back to the host; the host harness classifies whether the trap halted the
+// core before or after the trap-bundle store committed.
 //===----------------------------------------------------------------------===//
 module {
   aie.device(NPUDEVICE) {
@@ -63,8 +65,14 @@ module {
       %c1_i64 = arith.constant 1 : i64
       %c8_i64 = arith.constant 8 : i64
       // Arm PC_Event0 at the trap bundle (VALID bit 31 | 14-bit PC).
-      // TRAP_PC = 0x114 (bundle storing 0xBB/187 to output_buffer[1]),
-      // TRAP_PC14 = 0x114 & 0x3FFF = 0x0114.
+      // TRAP_PC = 0x114: the VLIW bundle address of the memref.store to
+      // output_buffer[%c1] (value 0xBB/187), read from llvm-objdump-aie
+      // of the compiled core ELF (main_core_0_2.elf in the chess/ build
+      // dir). This is DERIVED, not fixed: if the core kernel changes,
+      // re-derive TRAP_PC from a fresh disasm before updating the value
+      // below -- a stale PC silently misfires the breakpoint and
+      // invalidates the experiment. TRAP_PC14 = TRAP_PC & 0x3FFF = 0x0114
+      // (14-bit PC field; TRAP_PC must be < 0x4000).
       // value = 0x80000000 | 0x0114 = 0x80000114.
       // Offset 0x32020 = XAIEMLGBL_CORE_MODULE_PC_EVENT0, per aie-rt
       // driver/src/global/xaiemlgbl_params.h:2536.  VALID @ bit 31
