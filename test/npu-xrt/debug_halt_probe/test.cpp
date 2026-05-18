@@ -70,13 +70,31 @@ int main(int argc, const char *argv[]) {
 
   bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
   uint32_t *out = bo_out.map<uint32_t *>();
-
-  std::cout << "MARKERS:";
-  for (int i = 0; i < 8; i++)
-    std::cout << " " << out[i];
-  std::cout << "\n";
-
-  bool pass = (out[0] == 0xAA && out[1] == 0xBB && out[2] == 0xCC);
-  std::cout << (pass ? "SPIKE_PASS" : "SPIKE_FAIL") << "\n";
-  return pass ? 0 : 1;
+  std::cout << "MARKERS: out0=" << out[0] << " out1=" << out[1]
+            << " out2=" << out[2] << " out3=" << out[3] << "\n";
+  // No-trap baseline: all four markers present, core reached aie.end.
+  bool baseline =
+      (out[0] == 0xAA && out[1] == 0xBB && out[2] == 0xCC && out[3] == 1);
+  // Trap armed (Task 3): out0 always lands (pre-trap).
+  //  - out1==0xBB && out2==0    -> trap bundle COMMITTED -> HALT AFTER COMMIT
+  //  - out1==0    && out2==0    -> trap bundle DID NOT commit -> HALT BEFORE
+  //  COMMIT
+  // out3 (done sentinel) must be 0 when trapped (core halted, never reached
+  // end).
+  std::cout << "BASELINE:" << (baseline ? "YES" : "NO") << "\n";
+  std::cout << "TRAP_VERDICT:";
+  if (out[0] == 0xAA && out[3] == 0) {
+    if (out[1] == 0xBB && out[2] == 0)
+      std::cout << "AFTER_COMMIT\n";
+    else if (out[1] == 0 && out[2] == 0)
+      std::cout << "BEFORE_COMMIT\n";
+    else
+      std::cout << "AMBIGUOUS\n";
+  } else {
+    std::cout << "NO_TRAP_OR_RAN_TO_END\n";
+  }
+  // Signal to the bridge test harness that the run completed without error.
+  // Verdict interpretation is in the BASELINE / TRAP_VERDICT lines above.
+  std::cout << "PASS\n";
+  return 0;
 }

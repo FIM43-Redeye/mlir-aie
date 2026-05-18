@@ -30,13 +30,16 @@ module {
       %c0 = arith.constant 0 : index
       %c1 = arith.constant 1 : index
       %c2 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
       %mAA = arith.constant 170 : i32
       %mBB = arith.constant 187 : i32
       %mCC = arith.constant 204 : i32
+      %done = arith.constant 1 : i32
       aie.use_lock(%output_lock5, AcquireGreaterEqual, 1)
-      memref.store %mAA, %output_buffer[%c0] : memref<8xi32>
-      memref.store %mBB, %output_buffer[%c1] : memref<8xi32>
-      memref.store %mCC, %output_buffer[%c2] : memref<8xi32>
+      memref.store %mAA, %output_buffer[%c0] : memref<8xi32>   // PRE-trap
+      memref.store %mBB, %output_buffer[%c1] : memref<8xi32>   // TRAP bundle
+      memref.store %mCC, %output_buffer[%c2] : memref<8xi32>   // POST-trap
+      memref.store %done, %output_buffer[%c3] : memref<8xi32>  // sentinel: core ran to end
       aie.use_lock(%output_lock4, Release, 1)
       aie.end
     }
