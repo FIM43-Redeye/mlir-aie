@@ -5,14 +5,25 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-// debug_halt_probe host harness (Phase A -- Exp1: separable pre/trap/post/done
-// markers).
-// Reads the marker buffer back from the emulator and prints the four slot
-// markers (out0..out3), a BASELINE verdict (all four markers present, core
-// reached aie.end), and a TRAP_VERDICT classifying a Task-3 trap as
-// before/after-commit. The runtime sequence also issues one aiex.npu.write32
-// to compute-tile (0,2) Debug_Control0 to prove the control-packet authoring
-// mechanism reaches the tile.
+// debug_halt_probe host harness (Phase A -- Exp1 redesign: control-packet
+// OP_READ readback + schedule-derived verdict).
+//
+// Task 3 discovery: the lock-gated @out0 marker DMA hangs on a halted core
+// (the core never releases output_lock4), and the compiler reordered the
+// stores so a source-order verdict is inverted.  This harness reads
+// output_buffer slots and Core_Status via control-packet OP_READ (which works
+// on a halted core, prior art: add_one_ctrl_packet) and computes the verdict
+// from the disassembled store schedule (not source order).
+//
+// OUTBUF_ADDR = output_buffer tile-local address = p0 & 0xFFFF, where p0 is
+// the core's 20-bit pointer to output_buffer[0] from llvm-objdump-aie.
+// Task 3 disasm: p0 = 0x70400 => OUTBUF_ADDR = 0x0400.
+// This is DERIVED, not fixed.  Self-check: the EMU no-trap baseline must
+// return s[0]=170, s[1]=187, s[2]=204, s[3]=1 from the four slot reads.
+// If any slot is garbage, OUTBUF_ADDR is wrong -- re-derive from a fresh
+// disasm (or aiecc allocation log) and update OUTBUF_ADDR + regenerate
+// the ctrl-in packets below.  Also re-derive TRAP_PC in aie.mlir if the
+// kernel changes.
 //===----------------------------------------------------------------------===//
 
 #include <cstdint>
@@ -26,6 +37,24 @@
 #include "xrt/xrt_bo.h"
 #include "xrt/xrt_device.h"
 #include "xrt/xrt_kernel.h"
+
+// OUTBUF_ADDR: tile-local data-memory offset of output_buffer[0].
+// Derived: output_buffer base pointer (from llvm-objdump-aie of
+// main_core_0_2.elf, Task 3 disasm) = 0x70400; tile-local offset =
+// 0x70400 & 0xFFFF = 0x0400.  Must be re-derived if kernel/allocation
+// changes (see file-header comment).  Self-checked by EMU no-trap baseline.
+static constexpr uint32_t OUTBUF_ADDR = 0x0400;
+
+// Core_Status register offset (tile-local, compute-tile module).
+// XAIEMLGBL_CORE_MODULE_CORE_STATUS, per aie-rt
+// driver/src/global/xaiemlgbl_params.h.
+// bit 0 = core enabled/running; bit 16 = debug-halted (Halt_Event bit).
+static constexpr uint32_t CORE_STATUS_ADDR = 0x32004;
+
+// Number of ctrl-in words (one OP_READ header per slot + one for Core_Status).
+static constexpr int NUM_READ_PKTS = 5;
+// ctrl-out receives one response word per OP_READ packet.
+static constexpr int CTRL_OUT_WORDS = NUM_READ_PKTS;
 
 int main(int argc, const char *argv[]) {
   cxxopts::Options options("debug_halt_probe");
@@ -53,18 +82,69 @@ int main(int argc, const char *argv[]) {
   xrt::hw_context context(device, xclbin.get_uuid());
   auto kernel = xrt::kernel(context, kernelName);
 
-  // instr BO at group_id(1); output BO at group_id(3) (first runtime arg)
+  // BO layout (matches aie.mlir @seq arg order):
+  //   group_id(1) = instr BO (implicit, always first)
+  //   group_id(3) = ctrl-out BO (%arg0): receives OP_READ responses
+  //   group_id(4) = ctrl-in BO  (%arg1): holds assembled OP_READ headers
+  //   group_id(5) = output BO   (%arg2): marker DMA readback (EMU baseline)
   auto bo_instr = xrt::bo(device, instr_v.size() * sizeof(int),
                           XCL_BO_FLAGS_CACHEABLE, kernel.group_id(1));
-  auto bo_out = xrt::bo(device, 8 * sizeof(int32_t), XRT_BO_FLAGS_HOST_ONLY,
-                        kernel.group_id(3));
+  auto bo_ctrlOut = xrt::bo(device, 8 * sizeof(uint32_t),
+                            XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(3));
+  auto bo_ctrlIn = xrt::bo(device, NUM_READ_PKTS * sizeof(uint32_t),
+                           XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(4));
+  auto bo_out = xrt::bo(device, 8 * sizeof(uint32_t), XRT_BO_FLAGS_HOST_ONLY,
+                        kernel.group_id(5));
 
-  void *bufInstr = bo_instr.map<void *>();
-  memcpy(bufInstr, instr_v.data(), instr_v.size() * sizeof(int));
+  // Assemble OP_READ control-packet headers into ctrl-in BO.
+  // Header layout (from xdna-emu src/device/control_packets/parser.rs):
+  //   [31]    parity (even-parity over bits 30:0)
+  //   [30:24] stream_id (response routing; 0x2 = TileControl->shim flow 0x2)
+  //   [23:22] operation  (0x1 = OP_READ)
+  //   [21:20] length     (beats - 1; 0 = one response word)
+  //   [19:0]  address    (tile-local address to read)
+  // No data words follow an OP_READ header (reads carry no payload).
+  auto parity = [](uint32_t n) -> uint32_t {
+    uint32_t p = 0;
+    while (n) {
+      p += n & 1u;
+      n >>= 1;
+    }
+    return (p % 2u == 0u) ? 1u : 0u;
+  };
+
+  auto make_read_header = [&](uint32_t addr) -> uint32_t {
+    uint32_t stream_id =
+        0x2; // response routed via packet_flow(0x2) back to shim
+    uint32_t operation = 0x1;  // OP_READ
+    uint32_t beats_minus1 = 0; // 1 word response per packet
+    uint32_t hdr = (stream_id << 24) | (operation << 22) |
+                   (beats_minus1 << 20) | (addr & 0xFFFFF);
+    hdr |= (parity(hdr) << 31);
+    return hdr;
+  };
+
+  // Five OP_READ packets: output_buffer[0..3] then Core_Status.
+  std::vector<uint32_t> ctrlPackets = {
+      make_read_header(OUTBUF_ADDR + 0 * sizeof(uint32_t)), // s[0]
+      make_read_header(OUTBUF_ADDR + 1 * sizeof(uint32_t)), // s[1]
+      make_read_header(OUTBUF_ADDR + 2 * sizeof(uint32_t)), // s[2]
+      make_read_header(OUTBUF_ADDR + 3 * sizeof(uint32_t)), // s[3]
+      make_read_header(CORE_STATUS_ADDR),                   // Core_Status
+  };
+  uint32_t *bufCtrlIn = bo_ctrlIn.map<uint32_t *>();
+  memcpy(bufCtrlIn, ctrlPackets.data(), ctrlPackets.size() * sizeof(uint32_t));
+
+  uint32_t *bufInstr = bo_instr.map<uint32_t *>();
+  memcpy(bufInstr, instr_v.data(), instr_v.size() * sizeof(uint32_t));
+
   bo_instr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+  bo_ctrlIn.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
+  // Kernel args: opcode, instr BO, instr count, ctrl-out, ctrl-in, out
   unsigned int opcode = 3;
-  auto run = kernel(opcode, bo_instr, instr_v.size(), bo_out);
+  auto run =
+      kernel(opcode, bo_instr, instr_v.size(), bo_ctrlOut, bo_ctrlIn, bo_out);
   ert_cmd_state r = run.wait();
   if (r != ERT_CMD_STATE_COMPLETED) {
     std::cout << "Kernel did not complete. Returned status: " << r << "\n";
@@ -72,37 +152,42 @@ int main(int argc, const char *argv[]) {
   }
 
   bo_out.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-  uint32_t *out = bo_out.map<uint32_t *>();
-  std::cout << "MARKERS: out0=" << out[0] << " out1=" << out[1]
-            << " out2=" << out[2] << " out3=" << out[3] << "\n";
-  // No-trap baseline: all four markers present, core reached aie.end.
-  bool baseline =
-      (out[0] == 0xAA && out[1] == 0xBB && out[2] == 0xCC && out[3] == 1);
-  // Trap armed (Task 3): out0 always lands (pre-trap).
-  //  - out1==0xBB && out2==0 -> trap bundle COMMITTED -> HALT AFTER COMMIT
-  //  - out1==0    && out2==0 -> trap bundle DID NOT commit -> HALT BEFORE
-  //  COMMIT
-  // out2 (POST-trap store) must be 0: any trap halts the core before it reaches
-  // the post-trap store.
-  // out3 (done sentinel) must be 0 when trapped (core halted, never reached
-  // end).
-  std::cout << "BASELINE:" << (baseline ? "YES" : "NO") << "\n";
+  bo_ctrlOut.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+
+  // Parse ctrl-out response words.
+  // Responses arrive in the order the OP_READ packets were sent:
+  //   ctrlOut[0] = output_buffer[0] (s[0])
+  //   ctrlOut[1] = output_buffer[1] (s[1])
+  //   ctrlOut[2] = output_buffer[2] (s[2])
+  //   ctrlOut[3] = output_buffer[3] (s[3])
+  //   ctrlOut[4] = Core_Status       (cs)
+  uint32_t *ctrlOut = bo_ctrlOut.map<uint32_t *>();
+  uint32_t s[4];
+  for (int i = 0; i < 4; i++)
+    s[i] = ctrlOut[i];
+  uint32_t cs = ctrlOut[4];
+
+  // Schedule from llvm-objdump-aie (see aie.mlir TRAP_PC comment):
+  //   trap bundle 0x114 -> s[1]=0xBB ; strictly-later 0x11c -> s[0]=0xAA
+  //   later -> s[3]=1 ; later -> s[2]=0xCC
+  bool halted = (cs & (1u << 16)) && (cs & (1u << 0));
+  std::cout << "SLOTS: s0=" << s[0] << " s1=" << s[1] << " s2=" << s[2]
+            << " s3=" << s[3] << " CORE_STATUS=0x" << std::hex << cs << std::dec
+            << " HALTED=" << (halted ? 1 : 0) << "\n";
   std::cout << "TRAP_VERDICT:";
-  if (out[0] == 0xAA && out[3] == 0) {
-    if (out[1] == 0xBB && out[2] == 0)
-      std::cout << "AFTER_COMMIT\n";
-    else if (out[1] == 0 && out[2] == 0)
-      std::cout << "BEFORE_COMMIT\n";
-    // AMBIGUOUS: out1/out2 in an unexpected combination (e.g. post-trap landed
-    // but trap didn't) -- treat as a probe anomaly to investigate, not a clean
-    // before/after result.
+  if (!halted) {
+    if (s[0] == 0xAA && s[1] == 0xBB && s[2] == 0xCC && s[3] == 1)
+      std::cout << "NO_TRAP_OR_RAN_TO_END\n";
     else
-      std::cout << "AMBIGUOUS\n";
+      std::cout << "ANOMALY_NOT_HALTED\n";
+  } else if (s[1] == 0xBB && s[0] == 0 && s[2] == 0 && s[3] == 0) {
+    std::cout << "AFTER_COMMIT\n";
+  } else if (s[1] == 0 && s[0] == 0 && s[2] == 0 && s[3] == 0) {
+    std::cout << "BEFORE_COMMIT\n";
   } else {
-    std::cout << "NO_TRAP_OR_RAN_TO_END\n";
+    std::cout << "AMBIGUOUS\n";
   }
-  // Signal to the bridge test harness that the run completed without error.
-  // Verdict interpretation is in the BASELINE / TRAP_VERDICT lines above.
+  // Bridge-harness pass token (emu-bridge-test.sh greps for PASS).
   std::cout << "PASS\n";
   return 0;
 }
