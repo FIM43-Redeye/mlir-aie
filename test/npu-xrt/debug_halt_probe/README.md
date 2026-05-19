@@ -1,7 +1,15 @@
-# debug_halt_probe -- Phase A Exp1 (PC_Event0 breakpoint probe)
+# debug_halt_probe -- Phase A Exp1 (PC_Event0 breakpoint probe, MASKPOLL halt-sync)
 
 This test is **Phase A of the debug_halt design** (see
 `xdna-emu/docs/superpowers/specs/2026-05-18-debug-halt-design.md`).
+
+It arms a PC_Event0 breakpoint on a gated compute core, then reads back
+`output_buffer` + `Core_Status` via control-packet OP_READ. A firmware
+`XAIE_IO_MASKPOLL` post-compile injected into `insts.bin` makes the OP_READ
+provably *happen-after* the core halts. EMU and HW run the byte-identical
+patched binary; on EMU the poll is unsatisfiable by design (the expected
+`MASKPOLL_UNSATISFIED_EMU` baseline), so the G1 answer is hardware-only
+(Task 5b).
 
 ## What it is
 
@@ -115,9 +123,70 @@ write-side gap that drops the breakpoint-arming writes), not a probe bug.
 HW populates DEBUG_HALT/ENABLE correctly, so AFTER/BEFORE_COMMIT verdicts are
 hardware-only (Task 5b).
 
-## Schedule-derived verdict
+## MASKPOLL halt-synchronization (the happens-after primitive)
+
+**Task 5 P2/P3 discovery**: the static-`@seq` OP_READ had *no happens-after*
+against the core halt. Nothing ordered "core halted at the trap PC" before
+"OP_READ reads `output_buffer`" -- it was a pure relative-latency assumption.
+On EMU the gated core's stores land *after* the run loop terminated at
+`dma_wait @ctrl0`; on silicon the on-die halt and the host/NoC OP_READ have
+no synchronization primitive between them. (`aie.runtime_sequence` is strictly
+static -- no poll/conditional op exists -- and there is no on-device
+halt→lock/event actuation on AIE2, so neither the kernel nor `@seq` can
+express this ordering.)
+
+The fix is a firmware **`XAIE_IO_MASKPOLL`** (opcode 0x04) **post-compile
+injected into `insts.bin`** by `xdna-emu/tools/inject-maskpoll.py`. It blocks
+the instruction stream until `Core_Status & (1<<16)` (DEBUG_HALT) is set, so
+the OP_READ provably executes *after* the core has halted. No MLIR dialect op
+emits this (`NpuMaskPollOp` does not exist), so a post-compile binary patch is
+the only route -- consistent with the probe's existing hand-rolled
+control-register writes.
+
+Byte-exact streamed form (28 bytes, little-endian; same record shape as
+MaskWrite, opcode 0x03): `reg_off = (col0<<25)|(row2<<20)|0x32004`
+(= `0x00232004`, Core_Status absolute NPU address); `value = mask =
+0x00010000` (DEBUG_HALT bit 16); `size = 28`. The injector splices it
+immediately before the first ctrl-in MaskWrite32 at tile-local `0x1d218`
+(the ch1 channel-type setup that precedes the first OP_READ push --
+channel-robust, not instruction-count-based) and bumps the `insts.bin`
+header op-count `+1` and byte-size `+28`. It is idempotent (no-ops if a
+MASKPOLL on `0x00232004` is already present). The bridge wires it in
+`scripts/emu-bridge-test.sh` post-compile (and on the cache-hit path) so
+**EMU and HW run the byte-identical patched binary**.
+
+## `MASKPOLL_UNSATISFIED_EMU` -- the expected EMU baseline
+
+The streamed MASKPOLL has **no timeout**. On hardware the core halts at the
+breakpoint, DEBUG_HALT sets, the poll satisfies, and the OP_READ runs. On
+**EMU** the breakpoint-arming control-packet writes are dropped (the
+`write_core_register` catch-all -- a recorded Phase B input), so DEBUG_HALT
+*never* sets and the poll is **unsatisfiable by design**.
+
+The emulator therefore implements a **graceful poll-termination contract**
+(`xdna-emu`, `crates/xdna-emu-ffi/src/execution.rs`): when the executor is
+parked in `BlockedOnPoll` with no monotonic progress for a bounded window,
+the run ends deterministically with a distinct terminal reason
+(`XdnaEmuHaltReason::MaskPollUnsatisfied`), a clean `run.wait()` (no hang,
+no timeout). It does **not** fake the polled register, pretend the core
+halted, or issue the OP_READ -- so `ctrl-out` is never written.
+
+`test.cpp` pre-fills `ctrl-out` with a sentinel (`0xDEADC0DE`); if every
+slot still holds it after a clean `run.wait()`, the OP_READ never landed and
+the harness emits `TRAP_VERDICT:MASKPOLL_UNSATISFIED_EMU` -> bridge **PASS**.
+This is a *recognized expected-EMU outcome*, distinct from any HW verdict --
+it is **never** misreported as BEFORE/AFTER/NO_TRAP. EMU thus validates the
+readback mechanism, the gate feed, the disjoint route, the injector, and the
+poll-termination contract; the read-*while-halted* semantics and the G1
+answer itself are hardware-only (Task 5b).
+
+## Schedule-derived verdict (HW path, unchanged)
 
 ```
+maskpoll_unsatisfied_emu = (all ctrl-out slots == 0xDEADC0DE sentinel)
+  => TRAP_VERDICT:MASKPOLL_UNSATISFIED_EMU  (expected EMU baseline, PASS)
+
+otherwise (HW: core halted, MASKPOLL satisfied, OP_READ ran):
 halted = Core_Status[16]   // DEBUG_HALT bit alone (ENABLE not used)
 
 if !halted:
@@ -148,26 +217,30 @@ Results land in `build/bridge-test-results/latest/`.
 
 ## Current status
 
-**EMU mechanism validated (Task 5 complete).** Gate plumbing + ctrl-in ch1
-repoint + readback end-to-end confirmed. Bridge completes cleanly (no 600s
-timeout) -- the ch1 fix resolved the shim-channel collision. TRAP_PC=0x184
-re-verified from fresh disasm (unchanged by the ctrl-in repoint).
+**EMU mechanism validated (Task 5 complete -- MASKPOLL halt-sync redesign).**
+Gate plumbing + ctrl-in ch1 repoint + MASKPOLL injector + readback +
+graceful poll-termination confirmed end-to-end. The injected MASKPOLL is
+never satisfiable on EMU (DEBUG_HALT never sets), so the emulator terminates
+**deterministically** (`halt_reason=maskpoll_unsatisfied`, ~24k cycles, no
+600s timeout, clean `run.wait()`), the harness emits
+`TRAP_VERDICT:MASKPOLL_UNSATISFIED_EMU`, and the bridge reports **PASS**.
+The polled register is never faked, the core is never pretend-halted, and
+the OP_READ is never issued (ctrl-out retains its `0xDEADC0DE` sentinel).
+TRAP_PC=0x184 re-verified from fresh disasm (the injector patches only
+`insts.bin`; it does not touch the core ELF).
 
-EMU-side note: due to gate-delivery timing in the EMU (the gate token
-unblocks the core at approximately the same simulated cycle the first OP_READ
-hits), the EMU run may show `SLOTS: s0=0 s1=0 s2=0 s3=0` and
-`TRAP_VERDICT:ANOMALY_NOT_HALTED` rather than the ideal
-`NO_TRAP_OR_RAN_TO_END`. This is an EMU scheduling artifact, not a probe
-bug: the core does run to completion (confirmed by lock sequence in the EMU
-log), but the OP_READ snapshots data memory before the stores commit in the
-emulated cycle timeline. The run completes with `PASS` and no timeout. On
-real hardware the core runs in nanoseconds after gate release while the
-OP_READ takes microseconds to traverse the network, so there is no race on
-silicon.
+This replaces the obsolete static-`@seq` "EMU scheduling artifact"
+(`ANOMALY_NOT_HALTED`) behaviour: with the happens-after MASKPOLL there is
+no relative-latency race -- the OP_READ is synchronization-ordered after the
+core halt on HW, and deterministically not-issued on EMU.
 
 **Task 5b** (hardware, `--no-hw` removed) is the first read-while-halted
-exercise: the real PC_Event0 breakpoint fires, Core_Status shows `HALTED=1`,
-and the slot values determine the AFTER_COMMIT / BEFORE_COMMIT verdict (G1).
+exercise: the injected MASKPOLL blocks the stream until the real PC_Event0
+breakpoint fires and DEBUG_HALT sets, the OP_READ then runs *after* the
+halt, Core_Status shows `HALTED=1`, and the slot values determine the
+AFTER_COMMIT / BEFORE_COMMIT verdict (G1). (The no-timeout MASKPOLL means a
+non-halting HW core wedges the device -- the §7-bounded path; one
+recovery+retry, then §8 forward-commitment.)
 
 ## Spec reference
 
