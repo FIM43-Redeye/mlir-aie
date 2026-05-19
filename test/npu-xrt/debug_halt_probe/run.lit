@@ -23,6 +23,11 @@
 // The guard fires on (re)compile; a cache-hit bridge run (no recompile)
 // skips it by design -- the xclbin is derived from the golden, so a
 // golden change invalidates the cache and the guard re-runs.
+// Cross-repo path: %S is test/npu-xrt/debug_halt_probe/; ../../../../
+// climbs to npu-work/ and into the sibling xdna-emu checkout. This
+// assumes mlir-aie and xdna-emu are sibling clones under a common
+// parent (the standard npu-work layout) -- the probe's derive guard
+// lives in xdna-emu, not mlir-aie.
 // RUN: %python %S/../../../../xdna-emu/tools/debug-halt-probe-derive.py --elf aie_arch.mlir.prj/*core*.elf --in-mlir %S/aie.mlir.in --in-cpp %S/test.cpp.in --golden-mlir %S/aie.mlir --golden-cpp %S/test.cpp --out-mlir derived_check_aie.mlir --out-cpp derived_check_test.cpp
 //
 // RUN: clang %S/test.cpp -o test.exe -std=c++17 -Wall %xrt_flags -lrt -lstdc++ %test_utils_flags
