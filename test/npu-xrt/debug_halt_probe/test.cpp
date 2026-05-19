@@ -11,10 +11,10 @@
 // Exp2 inherits the Exp1 control-packet OP_READ readback machinery, extended
 // from 5 packets (4 marker slots + Core_Status) to 9 (8 marker slots +
 // Core_Status).  The verdict counts how many of the 8 expected values
-// (101..108) landed in output_buffer[], order-independent (the compiler may
-// reorder stores; each value is unique so counting distinct matches is
-// reorder-immune).  Core_Status[16] (DEBUG_HALT) and bit 20 (CORE_DONE) are
-// both reported.
+// (101..108) committed, order-independent (source binds value 101+k to slot
+// k; the scheduler only reorders commit timing, not value-to-slot -- see the
+// verdict-block comment for the precise argument).  Core_Status[16]
+// (DEBUG_HALT) and bit 20 (CORE_DONE) are both reported.
 //
 // TRANSIENT Exp2 config.  Task 8 will restore the Exp1 test.cpp
 // (git checkout <Exp1 SHA> -- test/npu-xrt/debug_halt_probe/test.cpp).
@@ -185,9 +185,16 @@ int main(int argc, const char *argv[]) {
 
   // Exp2 LANDED verdict (Transient -- Task 8 restores Exp1 test.cpp).
   //
-  // Count how many of the 8 expected values (101..108) are present in s[],
-  // order-independent (the compiler may reorder stores; each value is unique
-  // so counting distinct matches is reorder-immune).
+  // landed = number of committed marker stores, order-independent.  Precise
+  // reason it is reorder-immune: MLIR `memref.store %v(k), buf[k]` binds the
+  // value (101+k) to slot k by *source*; the instruction scheduler only
+  // reorders *when* each store commits, never which value lands at which
+  // address.  So s[k]==101+k iff that store committed; the positional check
+  // counts committed stores regardless of schedule order.  (Caveat for G2
+  // interpretation, not this verdict: if the compiler fuses the 8 scalar
+  // stores into one vector store they commit atomically, changing count-step
+  // granularity -- a Task 7 findings-doc observation, recorded from SLOTS,
+  // not a bug in this faithful count.)
   //
   // Report both terminal bits:
   //   HALTED = Core_Status[16] (DEBUG_HALT, aie-rt xaiemlgbl_params.h:2363)
