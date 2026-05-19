@@ -59,12 +59,15 @@ static constexpr uint32_t OUTBUF_ADDR = 0x0400;
 // bit 16 = DEBUG_HALT: the verdict's SOLE halted signal.  bit 0 = ENABLE is
 // no longer used by the verdict (ENABLE-stays-1-while-halted was an unverified
 // HW assumption; DEBUG_HALT=1 alone proves the core ran and is debug-halted).
-// On EMU, an OP_READ of this register returns 0x0 even for a completed core:
-// control-packet reads of core/debug registers are not wired to core_debug --
-// a known emulator read-side routing gap (symmetric to the write-side gap that
-// drops the breakpoint-arming writes), not a probe bug.  HW populates
-// DEBUG_HALT/ENABLE correctly; the AFTER/BEFORE_COMMIT verdicts are therefore
-// hardware-only (Task 5b).
+//
+// Phase B Unit 1b (xdna-emu, 2026-05-18): the mutable tile.read_register
+// path now dispatches Core_Status reads to core_debug.read_status() (mirroring
+// the Unit-1 read_register_pure fix).  The injected MASKPOLL polls Core_Status
+// via this path.  With arming wired (always was, spec §4.2 "Mechanism
+// correction") + the Unit-1 pre-execute seam halting before the trap bundle
+// + Unit-1b read reconciliation, the EMU DEBUG_HALT bit is now observable and
+// the MASKPOLL satisfies on EMU.  The probe is therefore a self-checking
+// EMU+HW regression of the G1 before-commit fidelity fix.
 static constexpr uint32_t CORE_STATUS_ADDR = 0x32004;
 
 // Number of ctrl-in words (one OP_READ header per slot + one for Core_Status).
@@ -215,37 +218,42 @@ int main(int argc, const char *argv[]) {
     s[i] = ctrlOut[i];
   uint32_t cs = ctrlOut[4];
 
-  // MASKPOLL-unsatisfied EMU baseline detection (Task 5 Step 4, spec §4.2
-  // "EMU limitation + graceful poll-termination").  The injected
-  // XAIE_IO_MASKPOLL blocks the instruction stream until Core_Status[16]
-  // (DEBUG_HALT).  On EMU the breakpoint-arming control-packet writes are
-  // dropped (write_core_register catch-all), so DEBUG_HALT never sets and
-  // the poll is unsatisfiable; the emulator terminates deterministically
-  // (HaltReason::MaskPollUnsatisfied) with a clean run.wait() and the
-  // OP_READ push is NEVER issued -- so the ctrl-out BO is never written and
-  // every slot still holds CTRLOUT_SENTINEL.  On HW the core halts, the poll
-  // satisfies, the OP_READ overwrites the sentinel, and the schedule-derived
-  // verdict below runs unchanged.  This is the EXPECTED EMU outcome ->
-  // bridge PASS; it is NOT a BEFORE/AFTER/NO_TRAP misreport.
-  bool maskpoll_unsatisfied_emu = true;
+  // MASKPOLL-unsatisfied defensive branch.
+  //
+  // The injected XAIE_IO_MASKPOLL blocks the instruction stream until
+  // Core_Status[16] (DEBUG_HALT).  As of Phase B Unit 1b (xdna-emu), the
+  // mutable tile.read_register path dispatches Core_Status reads to
+  // core_debug.read_status(), so DEBUG_HALT IS now observable on EMU.  With
+  // arming wired (spec §4.2 "Mechanism correction") and the Unit-1 pre-execute
+  // seam halting before the trap bundle commits, the MASKPOLL SATISFIES on EMU
+  // and the OP_READ push runs.  EMU and HW both reach the schedule-derived
+  // verdict below (BEFORE_COMMIT expected on both).
+  //
+  // This sentinel-check block is therefore a DEFENSIVE branch for unexpected
+  // regressions (e.g. a future emulator build where Unit 1b is not present)
+  // and is NO LONGER the expected EMU outcome.  If all slots still hold the
+  // sentinel after a clean run.wait(), something has regressed -- emit the
+  // diagnostic and fail (return 1) so the bridge harness flags it.
+  //
+  // The emulator graceful-poll-termination contract (MaskPollUnsatisfied
+  // terminal reason, clean run.wait(), no register fakery) is retained and
+  // independently unit-tested; it simply is not this probe's path any more.
+  bool maskpoll_unsatisfied = true;
   for (int i = 0; i < CTRL_OUT_WORDS; i++) {
     if (ctrlOut[i] != CTRLOUT_SENTINEL) {
-      maskpoll_unsatisfied_emu = false;
+      maskpoll_unsatisfied = false;
       break;
     }
   }
-  if (maskpoll_unsatisfied_emu) {
+  if (maskpoll_unsatisfied) {
     std::cout << "SLOTS: s0=" << s[0] << " s1=" << s[1] << " s2=" << s[2]
               << " s3=" << s[3] << " CORE_STATUS=0x" << std::hex << cs
               << std::dec
-              << " HALTED=0 (OP_READ never issued: MASKPOLL unsatisfied on "
-              << "EMU -- DEBUG_HALT cannot be set)\n";
+              << " HALTED=0 (OP_READ never issued: MASKPOLL unsatisfied --"
+              << " Unit 1b regression or unexpected build?)\n";
     std::cout << "TRAP_VERDICT:MASKPOLL_UNSATISFIED_EMU\n";
-    // Bridge-harness pass token: this is the recognized expected EMU
-    // baseline (readback mechanism, gate feed, disjoint route, injector, and
-    // poll-termination contract all validated; G1 is hardware-only, 5b).
-    std::cout << "PASS\n";
-    return 0;
+    // FAIL: this is no longer the expected EMU outcome (Phase B Unit 1b).
+    return 1;
   }
 
   // Schedule from llvm-objdump-aie (gated build, Task 5 re-derivation):
