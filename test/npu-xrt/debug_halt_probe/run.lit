@@ -3,10 +3,28 @@
 //
 // REQUIRES: ryzen_ai
 //
+// Compile the committed golden once (aie_arch.mlir = golden aie.mlir
+// with NPUDEVICE substituted; under the bridge harness aie_arch.mlir is
+// synthesized from canonical aie.mlir, the cp line being skipped there).
 // RUN: cp %S/aie.mlir aie_arch.mlir
 // RUN: %run_on_npu1% sed 's/NPUDEVICE/npu1_1col/g' -i aie_arch.mlir
 // RUN: %run_on_npu2% sed 's/NPUDEVICE/npu2_1col/g' -i aie_arch.mlir
 // RUN: %python aiecc.py --no-aiesim --aie-generate-xclbin --aie-generate-npu-insts --no-compile-host --alloc-scheme=basic-sequential --xclbin-name=aie.xclbin --npu-insts-name=insts.bin aie_arch.mlir
+//
+// Derive + guard (after aiecc, before host compile/run): re-derive
+// OUTBUF_ADDR/TRAP_PC from the compiled core ELF, regenerate from the
+// .in templates, diff against the committed golden aie.mlir/test.cpp.
+// Match -> exit 0 (the bytes just compiled ARE the golden; proceed).
+// Drift -> non-zero, the test fails HERE (host lines below do not run),
+// printing committed-vs-derived. One compile suffices: golden is the
+// only kernel source and the tool emits golden-on-match, so a separate
+// scratch pass is redundant; the --out-* files are a throwaway guard
+// side-effect (nothing consumes them in single-pass).
+// The guard fires on (re)compile; a cache-hit bridge run (no recompile)
+// skips it by design -- the xclbin is derived from the golden, so a
+// golden change invalidates the cache and the guard re-runs.
+// RUN: %python %S/../../../../xdna-emu/tools/debug-halt-probe-derive.py --elf aie_arch.mlir.prj/*core*.elf --in-mlir %S/aie.mlir.in --in-cpp %S/test.cpp.in --golden-mlir %S/aie.mlir --golden-cpp %S/test.cpp --out-mlir derived_check_aie.mlir --out-cpp derived_check_test.cpp
+//
 // RUN: clang %S/test.cpp -o test.exe -std=c++17 -Wall %xrt_flags -lrt -lstdc++ %test_utils_flags
 // RUN: %run_on_npu1% ./test.exe -x aie.xclbin -k MLIR_AIE -i insts.bin
 // RUN: %run_on_npu2% ./test.exe -x aie.xclbin -k MLIR_AIE -i insts.bin
