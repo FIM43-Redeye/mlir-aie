@@ -8,13 +8,18 @@
 // debug_halt_probe host harness (Phase A -- Exp2: Debug_Control0 count-step
 // matrix).
 //
-// Exp2 inherits the Exp1 control-packet OP_READ readback machinery, extended
-// from 5 packets (4 marker slots + Core_Status) to 9 (8 marker slots +
-// Core_Status).  The verdict counts how many of the 8 expected values
-// (101..108) committed, order-independent (source binds value 101+k to slot
-// k; the scheduler only reorders commit timing, not value-to-slot -- see the
-// verdict-block comment for the precise argument).  Core_Status[16]
-// (DEBUG_HALT) and bit 20 (CORE_DONE) are both reported.
+// Exp2 uses a NO-POLL DOUBLE OP_READ for the settled-state verdict (spec §4.3).
+// @seq issues 18 ctrl-in packets total: pass A (9: 8 marker slots +
+// Core_Status) followed immediately by pass B (same 9, verbatim repeat).
+// The ctrl-out BO receives 18 response words: A=[0..8], B=[9..17].
+// test.cpp requires A==B (every slot + Core_Status identical) => settled
+// terminal state.  A!=B => UNSETTLED (core still mid-execution -- clean
+// re-run, never a device wedge).
+//
+// LANDED = number of committed marker stores, order-independent.  Precise
+// reason: MLIR `memref.store %v(k), buf[k]` binds value (101+k) to slot k by
+// source; the scheduler only reorders when each store commits, never which
+// value lands at which address.  So s[k]==101+k iff that store committed.
 //
 // TRANSIENT Exp2 config.  Task 8 will restore the Exp1 test.cpp
 // (git checkout <Exp1 SHA> -- test/npu-xrt/debug_halt_probe/test.cpp).
@@ -57,13 +62,11 @@ static constexpr uint32_t OUTBUF_ADDR = 0x0400;
 //   width=1, lines 2347-2349).
 static constexpr uint32_t CORE_STATUS_ADDR = 0x32004;
 
-// Number of ctrl-in/ctrl-out words: 8 marker slots + 1 Core_Status = 9.
-static constexpr int NUM_READ_PKTS = 9;
+// Number of ctrl-in packets per pass: 8 marker slots + 1 Core_Status = 9.
+// ctrl-out BO receives 2 passes: pass A = words [0..8], pass B = words [9..17].
+static constexpr int NUM_READ_PKTS = 18; // total ctrl-out words (2 passes)
+static constexpr int PKTS_PER_PASS = 9;  // packets per pass
 static constexpr int CTRL_OUT_WORDS = NUM_READ_PKTS;
-
-// Sentinel pre-written into every ctrl-out slot before the run.  Used to
-// detect un-issued OP_READ (MASKPOLL-unsatisfied path, if any).
-static constexpr uint32_t CTRLOUT_SENTINEL = 0xDEADC0DEu;
 
 int main(int argc, const char *argv[]) {
   cxxopts::Options options("debug_halt_probe");
@@ -100,7 +103,10 @@ int main(int argc, const char *argv[]) {
                           XCL_BO_FLAGS_CACHEABLE, kernel.group_id(1));
   auto bo_ctrlOut = xrt::bo(device, CTRL_OUT_WORDS * sizeof(uint32_t),
                             XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(3));
-  auto bo_ctrlIn = xrt::bo(device, NUM_READ_PKTS * sizeof(uint32_t),
+  // ctrl-in BO holds 9 unique OP_READ headers (one per target address).
+  // @seq sends them twice (pass A then pass B) by reusing this same BO;
+  // only 9 headers need to be assembled.
+  auto bo_ctrlIn = xrt::bo(device, PKTS_PER_PASS * sizeof(uint32_t),
                            XRT_BO_FLAGS_HOST_ONLY, kernel.group_id(4));
   auto bo_gate = xrt::bo(device, sizeof(uint32_t), XRT_BO_FLAGS_HOST_ONLY,
                          kernel.group_id(5));
@@ -131,7 +137,8 @@ int main(int argc, const char *argv[]) {
     return hdr;
   };
 
-  // Nine OP_READ packets: output_buffer[0..7] then Core_Status.
+  // Nine OP_READ packet headers: output_buffer[0..7] then Core_Status.
+  // @seq reuses this 9-header ctrl-in BO for both pass A and pass B.
   std::vector<uint32_t> ctrlPackets = {
       make_read_header(OUTBUF_ADDR + 0 * sizeof(uint32_t)), // s[0]
       make_read_header(OUTBUF_ADDR + 1 * sizeof(uint32_t)), // s[1]
@@ -149,10 +156,10 @@ int main(int argc, const char *argv[]) {
   uint32_t *bufGate = bo_gate.map<uint32_t *>();
   bufGate[0] = 1u;
 
-  // Pre-fill ctrl-out with the sentinel so un-issued OP_READ is detectable.
   uint32_t *bufCtrlOut = bo_ctrlOut.map<uint32_t *>();
-  for (int i = 0; i < CTRL_OUT_WORDS; i++)
-    bufCtrlOut[i] = CTRLOUT_SENTINEL;
+  // Zero-init ctrl-out (no sentinel needed: we check agreement between passes,
+  // not presence of a specific sentinel value).
+  memset(bufCtrlOut, 0, CTRL_OUT_WORDS * sizeof(uint32_t));
 
   uint32_t *bufInstr = bo_instr.map<uint32_t *>();
   memcpy(bufInstr, instr_v.data(), instr_v.size() * sizeof(uint32_t));
@@ -173,51 +180,60 @@ int main(int argc, const char *argv[]) {
 
   bo_ctrlOut.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
-  // Parse ctrl-out response words.
-  // Responses arrive in the order the OP_READ packets were sent:
-  //   ctrlOut[0..7] = output_buffer[0..7] (s[0..7])
-  //   ctrlOut[8]    = Core_Status          (cs)
+  // Parse ctrl-out response words (double-read, spec §4.3).
+  // ctrl-out layout:
+  //   pass A: [0..7]  = output_buffer[0..7]  (sA[0..7])
+  //           [8]     = Core_Status           (csA)
+  //   pass B: [9..16] = output_buffer[0..7]  (sB[0..7])
+  //           [17]    = Core_Status           (csB)
   uint32_t *ctrlOut = bo_ctrlOut.map<uint32_t *>();
-  uint32_t s[8];
-  for (int i = 0; i < 8; i++)
-    s[i] = ctrlOut[i];
-  uint32_t cs = ctrlOut[8];
+  uint32_t sA[8], sB[8];
+  for (int k = 0; k < 8; k++)
+    sA[k] = ctrlOut[k];
+  uint32_t csA = ctrlOut[8];
+  for (int k = 0; k < 8; k++)
+    sB[k] = ctrlOut[9 + k];
+  uint32_t csB = ctrlOut[17];
+
+  // Settled-state self-validation: A == B (every slot + Core_Status identical).
+  // A != B => core was still mid-execution during pass A; clean re-run.
+  bool settled = (csA == csB) && (memcmp(sA, sB, sizeof(sA)) == 0);
+
+  // Interpret pass B (the later, more authoritative snapshot).
+  auto count_landed = [](const uint32_t *s) {
+    int n = 0;
+    for (int k = 0; k < 8; k++)
+      if (s[k] == (uint32_t)(101 + k))
+        n++;
+    return n;
+  };
+  int landedB = count_landed(sB);
+  bool halted = (csB & (1u << 16)) != 0; // DEBUG_HALT bit 16 (aie-rt 2363)
+  bool done = (csB & (1u << 20)) != 0;   // CORE_DONE  bit 20 (aie-rt 2347)
 
   // Exp2 LANDED verdict (Transient -- Task 8 restores Exp1 test.cpp).
   //
-  // landed = number of committed marker stores, order-independent.  Precise
-  // reason it is reorder-immune: MLIR `memref.store %v(k), buf[k]` binds the
-  // value (101+k) to slot k by *source*; the instruction scheduler only
-  // reorders *when* each store commits, never which value lands at which
-  // address.  So s[k]==101+k iff that store committed; the positional check
-  // counts committed stores regardless of schedule order.  (Caveat for G2
-  // interpretation, not this verdict: if the compiler fuses the 8 scalar
-  // stores into one vector store they commit atomically, changing count-step
-  // granularity -- a Task 7 findings-doc observation, recorded from SLOTS,
-  // not a bug in this faithful count.)
+  // SLOTS: uses pass B (sB) -- later and identical to sA when settled.
+  // LANDED: counts slots where s[k]==101+k (value-to-slot bound by source, so
+  // count is schedule-reorder-immune -- see file-header comment).
+  // SETTLED=1 => A==B => terminal state; SETTLED=0 => re-run clean.
   //
-  // Report both terminal bits:
-  //   HALTED = Core_Status[16] (DEBUG_HALT, aie-rt xaiemlgbl_params.h:2363)
-  //   DONE   = Core_Status[20] (CORE_DONE,  aie-rt xaiemlgbl_params.h:2347)
-  //
-  // Three-way interpretation:
+  // Three-way interpretation when settled:
   //   done=1, landed=8, halted=0  -> count-step inert (core ran to end)
   //   halted=1, landed=N (N<8)    -> count-step fired after N committed stores
   //   other                       -> partial / unexpected; record verbatim
-  int landed = 0;
-  for (int k = 0; k < 8; k++)
-    if (s[k] == (uint32_t)(101 + k))
-      landed++;
-  bool halted = (cs & (1u << 16)) != 0; // DEBUG_HALT bit 16
-  bool done = (cs & (1u << 20)) != 0;   // CORE_DONE  bit 20
-
   std::cout << "SLOTS:";
   for (int k = 0; k < 8; k++)
-    std::cout << " " << s[k];
-  std::cout << " CORE_STATUS=0x" << std::hex << cs << std::dec
+    std::cout << " " << sB[k];
+  std::cout << " CORE_STATUS=0x" << std::hex << csB << std::dec
             << " HALTED=" << (halted ? 1 : 0) << " DONE=" << (done ? 1 : 0)
-            << "\n";
-  std::cout << "LANDED:" << landed << "\n";
+            << " SETTLED=" << (settled ? 1 : 0) << "\n";
+  std::cout << "LANDED:" << landedB << "\n";
+
+  if (!settled) {
+    std::cout << "UNSETTLED\n";
+    return 1;
+  }
 
   // Bridge-harness pass token (emu-bridge-test.sh greps for PASS).
   std::cout << "PASS\n";

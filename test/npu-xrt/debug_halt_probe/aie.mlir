@@ -10,12 +10,9 @@
 // k=0..7) characterize Debug_Control0[5:2] (Single_Step_Count, G2).  The
 // runtime sequence writes a single Debug_Control0 value (count/halt config)
 // to compute-tile (0,2), then reads back all 8 marker slots + Core_Status via
-// control-packet OP_READ.  A post-compile-injected XAIE_IO_MASKPOLL on
-// Core_Status[20] (CORE_DONE) ensures the OP_READ happens-after the core
-// finishes (or, if the DONE-MASKPOLL wedges, re-run with --witness halt to
-// catch a DEBUG_HALT partial-state).
+// a NO-POLL DOUBLE control-packet OP_READ.
 //
-// Exp2 inherits all three Exp1 redesigns unchanged:
+// Exp2 inherits two of the three Exp1 redesigns unchanged:
 //   @gate objectfifo: arming-race fix -- the core's first op is a
 //     llvm.aie2.acquire hardware-blocking stall on @gate, so the
 //     Debug_Control0 write provably lands before the core proceeds.
@@ -25,10 +22,16 @@
 //     ch0 (lowest free, not pinnable per DMAChannelAnalysis); the hand-rolled
 //     ctrl-in push is on ch1 so the two host->tile flows use distinct shim
 //     slave ports.
-//   MASKPOLL happens-after: conditional-witness post-compile injection by
-//     inject-maskpoll.py (via emu-bridge-test.sh _inject_maskpoll_if_probe).
-//     Default --witness done polls CORE_DONE (inert path); if the DONE-
-//     MASKPOLL wedges, re-run with --witness halt.
+//
+// Exp2 does NOT use an injected MASKPOLL (spec §4.3).  Task 7 HW-grounded the
+// conditional-MASKPOLL design out: the no-timeout CORE_DONE poll SMU-wedged
+// the NPU and was an unproven happens-after.  The happens-after for Exp2 is a
+// NO-POLL DOUBLE OP_READ: @seq issues the 9-packet readback TWICE (18 total;
+// pass A then pass B, identical sequence, both in the in-order stream after
+// the gate feed).  test.cpp requires A==B (every slot + Core_Status) to
+// confirm a settled terminal state before interpreting the result.  A!=B =>
+// UNSETTLED (core still mid-execution -- a clean re-run, never a device wedge).
+// The bridge sets DEBUG_HALT_PROBE_WITNESS=none to skip MASKPOLL injection.
 //
 // Exp2 only changes @seq arming: the two Exp1 arming writes (PC_Event0 at
 // 0x32020, Debug_Control2 at 0x32018) are replaced by a single
@@ -153,11 +156,15 @@ module {
     //   group_id(3) = %arg0 ctrl-out
     //   group_id(4) = %arg1 ctrl-in
     //   group_id(5) = %arg2 gate
-    aie.runtime_sequence @seq(%arg0: memref<9xi32>, %arg1: memref<9xi32>, %arg2: memref<1xi32>) {
+    // @seq args:
+    //   %arg0 = ctrl-out BO  (18 words: 9 per pass, pass A then pass B)
+    //   %arg1 = ctrl-in BO   (9 OP_READ request headers; reused for both passes)
+    //   %arg2 = gate BO      (1xi32 token)
+    aie.runtime_sequence @seq(%arg0: memref<18xi32>, %arg1: memref<9xi32>, %arg2: memref<1xi32>) {
       %c0_i64 = arith.constant 0 : i64
       %c1_i64 = arith.constant 1 : i64
-      // 9 reads: 8 marker slots + Core_Status.
-      %c9_i64 = arith.constant 9 : i64
+      // 18 reads: pass A (9) + pass B (9).
+      %c18_i64 = arith.constant 18 : i64
 
       // Exp2 arming: single Debug_Control0 write replaces the Exp1
       // PC_Event0 (0x32020) + Debug_Control2 (0x32018) writes.
@@ -174,7 +181,7 @@ module {
       // write_debug_control0 (xdna-emu mod.rs:787).  EMU count-step is
       // inert (nothing reads the stored count -- the §5.2 state machine is
       // deferred Phase B work).  So on EMU every matrix point: core runs
-      // all 8 stores -> CORE_DONE -> DONE-MASKPOLL satisfies -> LANDED:8.
+      // all 8 stores -> terminal state stable -> pass A == pass B -> LANDED:8.
       aiex.npu.write32 {address = 0x32010 : ui32, column = 0 : i32, row = 2 : i32, value = 0x10 : ui32}
 
       // Feed the blocking gate objectfifo (@gate) after writing Debug_Control0.
@@ -184,16 +191,22 @@ module {
       // to reach the tile before this transfer unblocks the core.
       aiex.npu.dma_memcpy_nd(%arg2[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 2 : i64, metadata = @gate} : memref<1xi32>
 
-      // --- Control-packet OP_READ readback ---
-      // Register ctrl-out (S2MM ch0) receiver first: exactly 9 words (one
-      // response word per OP_READ packet -- 8 marker slots + Core_Status).
-      aiex.npu.dma_memcpy_nd(%arg0[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c9_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 1 : i64, issue_token = true, metadata = @ctrl0} : memref<9xi32>
+      // --- Control-packet OP_READ double readback (no MASKPOLL) ---
+      // Register ctrl-out (S2MM ch0) receiver for 18 words total:
+      //   words [0..8]  = pass A responses (8 marker slots + Core_Status)
+      //   words [9..17] = pass B responses (same sequence, verbatim repeat)
+      // Pass B is strictly after pass A in the in-order stream and after
+      // pass A's shim round-trips.  test.cpp asserts A==B (settled-state
+      // self-validation, spec §4.3): A!=B => UNSETTLED (clean re-run, no wedge).
+      aiex.npu.dma_memcpy_nd(%arg0[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c18_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64]) {id = 1 : i64, issue_token = true, metadata = @ctrl0} : memref<18xi32>
 
       // Set up the shim DMA BD0 (MM2S ch1) template for ctrl-in pushes.
       %0 = memref.get_global @blockwrite_data_0 : memref<8xi32>
       aiex.npu.blockwrite(%0) {address = 0x1d000 : ui32, column = 0 : i32, row = 0 : i32} : memref<8xi32>
 
-      // Packet 0: OP_READ output_buffer[0] at OUTBUF_ADDR+0 = 0x0400.
+      // --- Pass A: 9 OP_READ packets ---
+
+      // Packet A0: OP_READ output_buffer[0] at OUTBUF_ADDR+0 = 0x0400.
       // 0x1d218 = XAIEMLGBL_NOC_MODULE_DMA_MM2S_1_CTRL (ch1, stride 0x8 from
       // ch0 at 0x1d210; verified against aie-rt xaiemlgbl_params.h:18775).
       aiex.npu.maskwrite32 {address = 0x1d218 : ui32, column = 0 : i32, row = 0 : i32, mask = 0x00000F00 : ui32, value = 0x400 : ui32}
@@ -201,49 +214,100 @@ module {
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 1: OP_READ output_buffer[1] at OUTBUF_ADDR+4 = 0x0404.
+      // Packet A1: OP_READ output_buffer[1] at OUTBUF_ADDR+4 = 0x0404.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 4 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 2: OP_READ output_buffer[2] at OUTBUF_ADDR+8 = 0x0408.
+      // Packet A2: OP_READ output_buffer[2] at OUTBUF_ADDR+8 = 0x0408.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 8 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 3: OP_READ output_buffer[3] at OUTBUF_ADDR+12 = 0x040C.
+      // Packet A3: OP_READ output_buffer[3] at OUTBUF_ADDR+12 = 0x040C.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 12 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 4: OP_READ output_buffer[4] at OUTBUF_ADDR+16 = 0x0410.
+      // Packet A4: OP_READ output_buffer[4] at OUTBUF_ADDR+16 = 0x0410.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 16 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 5: OP_READ output_buffer[5] at OUTBUF_ADDR+20 = 0x0414.
+      // Packet A5: OP_READ output_buffer[5] at OUTBUF_ADDR+20 = 0x0414.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 20 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 6: OP_READ output_buffer[6] at OUTBUF_ADDR+24 = 0x0418.
+      // Packet A6: OP_READ output_buffer[6] at OUTBUF_ADDR+24 = 0x0418.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 24 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 7: OP_READ output_buffer[7] at OUTBUF_ADDR+28 = 0x041C.
+      // Packet A7: OP_READ output_buffer[7] at OUTBUF_ADDR+28 = 0x041C.
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 28 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Packet 8: OP_READ Core_Status register at 0x32004 (CORE_STATUS_ADDR).
+      // Packet A8: OP_READ Core_Status register at 0x32004 (CORE_STATUS_ADDR).
       // bit 16 = DEBUG_HALT, bit 20 = CORE_DONE (aie-rt xaiemlgbl_params.h:
       // 2363-2365 DEBUG_HALTED, 2347-2349 CORE_DONE).
       aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 32 : i32}
       aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
       aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
 
-      // Wait for all ctrl-out response words to arrive.
+      // --- Pass B: identical 9 OP_READ packets (verbatim repeat of pass A) ---
+      // Responses land in ctrl-out words [9..17].  Pass B is strictly after
+      // pass A in the in-order instruction stream.  A==B => settled terminal
+      // state; A!=B => core was still mid-execution during pass A (UNSETTLED).
+
+      // Packet B0: OP_READ output_buffer[0] at OUTBUF_ADDR+0 = 0x0400.
+      aiex.npu.maskwrite32 {address = 0x1d218 : ui32, column = 0 : i32, row = 0 : i32, mask = 0x00000F00 : ui32, value = 0x400 : ui32}
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 0 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B1: OP_READ output_buffer[1] at OUTBUF_ADDR+4 = 0x0404.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 4 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B2: OP_READ output_buffer[2] at OUTBUF_ADDR+8 = 0x0408.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 8 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B3: OP_READ output_buffer[3] at OUTBUF_ADDR+12 = 0x040C.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 12 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B4: OP_READ output_buffer[4] at OUTBUF_ADDR+16 = 0x0410.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 16 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B5: OP_READ output_buffer[5] at OUTBUF_ADDR+20 = 0x0414.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 20 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B6: OP_READ output_buffer[6] at OUTBUF_ADDR+24 = 0x0418.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 24 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B7: OP_READ output_buffer[7] at OUTBUF_ADDR+28 = 0x041C.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 28 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Packet B8: OP_READ Core_Status register at 0x32004.
+      aiex.npu.address_patch {addr = 0x1d004 : ui32, arg_idx = 1 : i32, arg_plus = 32 : i32}
+      aiex.npu.write32 {address = 0x1d21c : ui32, column = 0 : i32, row = 0 : i32, value = 0x80000000 : ui32}
+      aiex.npu.sync {channel = 1 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
+
+      // Wait for all 18 ctrl-out response words to arrive.
       aiex.npu.dma_wait {symbol = @ctrl0}
     }
   }

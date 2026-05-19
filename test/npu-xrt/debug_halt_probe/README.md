@@ -255,56 +255,49 @@ evidence) live in the design spec:
 Exp2 reshapes the probe for `Debug_Control0[5:2]` (`Single_Step_Count`)
 characterization.  The core writes 8 distinct sequential marker stores
 (`output_buffer[k]=101+k`, k=0..7) behind the same `@gate` (arming-race
-immunity) and the same ctrl-in-on-ch1 OP_READ readback (9 packets: 8 slots
-+ Core_Status).  The `@seq` arming is a single `Debug_Control0` write
-replacing the Exp1 `PC_Event0`+`Debug_Control2` writes.
+immunity) and the same ctrl-in-on-ch1 OP_READ readback.  The `@seq` arming
+is a single `Debug_Control0` write replacing the Exp1 `PC_Event0`+`Debug_Control2`
+writes.
 
-### Matrix
+**No injected MASKPOLL.** Task 7 HW-grounded the conditional-MASKPOLL design
+out: the no-timeout CORE_DONE poll SMU-wedged the NPU.  Exp2 uses a
+**no-poll double OP_READ** instead: `@seq` sends the 9-packet readback twice
+(18 total), and `test.cpp` requires pass A == pass B (`SETTLED=1`) before
+interpreting the result.  `A != B` => `UNSETTLED` (core still mid-execution
+during pass A -- clean re-run, never a device wedge).
+
+Set `DEBUG_HALT_PROBE_WITNESS=none` to skip MASKPOLL injection:
+
+```bash
+# Exp2 run (no poll -- double OP_READ settled-state verdict)
+cd /home/triple/npu-work/xdna-emu
+DEBUG_HALT_PROBE_WITNESS=none ./scripts/emu-bridge-test.sh debug_halt_probe --chess-only --no-hw
+```
+
+### Minimal matrix (decisive contrast)
 
 | Config | `Debug_Control0` value | Description |
 |--------|------------------------|-------------|
-| count=4 no-halt | `0x10` | bits [5:2]=4, bit0=0 -- start point |
-| count=4 halt | `0x11` | bits [5:2]=4, bit0=1 (halt bit also set) |
-| count=2 no-halt | `0x08` | bits [5:2]=2, bit0=0 |
-| count=8 no-halt | `0x20` | bits [5:2]=8, bit0=0 |
-| count=0 control | `0x00` | bits [5:2]=0, bit0=0 -- control (no count) |
+| count=0 control | `0x00` | bits [5:2]=0, bit0=0 -- control (count-step definitively off) |
+| count=4 no-halt | `0x10` | bits [5:2]=4, bit0=0 -- count-step may fire |
+
+`0x00` vs `0x10` is the decisive contrast: it separates "count-step active on
+silicon" from "count-step inert".  Further points (`0x11`, `0x08`, `0x20`)
+only if the minimal set warrants.
 
 Edit the `aiex.npu.write32` value in `aie.mlir` `@seq` (the `Debug_Control0`
 write at offset `0x32010`) to select a matrix point, then rebuild and re-run.
-
-### Conditional-MASKPOLL protocol
-
-The default Exp2 injection is `--witness done` (Core_Status[20] CORE_DONE).
-Set via `DEBUG_HALT_PROBE_WITNESS=done ./scripts/emu-bridge-test.sh debug_halt_probe --chess-only`.
-
-- **DONE-MASKPOLL satisfies** (`DONE=1`, `LANDED:8`, `HALTED=0`): count-step
-  is inert for that config -- recorded result, move to next config.
-- **DONE-MASKPOLL wedges** (core never reached CORE_DONE because count-step
-  halted it): recover (staged, per CLAUDE.md), re-run that config with
-  `--witness halt` (`DEBUG_HALT_PROBE_WITNESS=halt`).  The DEBUG_HALT MASKPOLL
-  satisfies when the core halts; record `LANDED:N` + `HALTED=1`.
-
-```bash
-# Default Exp2 run (witness=done -- inert path)
-cd /home/triple/npu-work/xdna-emu
-DEBUG_HALT_PROBE_WITNESS=done ./scripts/emu-bridge-test.sh debug_halt_probe --chess-only --no-hw
-
-# Re-run with witness=halt (if DONE-MASKPOLL wedged on HW)
-DEBUG_HALT_PROBE_WITNESS=halt ./scripts/emu-bridge-test.sh debug_halt_probe --chess-only
-```
 
 ### EMU expectation (Exp2)
 
 On EMU, the `Debug_Control0` write reaches `core_debug` via
 `apply_tile_local_effects` -> `write_debug_control0` (xdna-emu `mod.rs:787`).
 EMU count-step is inert because nothing reads the stored count -- the §5.2
-count-step state machine is deferred Phase B work.  So on EMU every matrix
-point: core runs all 8 stores -> `CORE_DONE` -> DONE-MASKPOLL satisfies ->
-`LANDED:8`, `DONE=1`, `HALTED=0`.
+count-step state machine is deferred Phase B work.  So on EMU both minimal
+points: core runs all 8 stores -> terminal state stable -> pass A == pass B ->
+`SETTLED=1`, `LANDED:8`, `DONE=1`, `HALTED=0`, bridge `PASS`.
 
-If the DONE-MASKPOLL does NOT satisfy on EMU (EMU `core_debug` does not latch
-`CORE_DONE` in computed `Core_Status`), that is a discovered EMU-fidelity gap
-of the Unit-1b class -- surface it explicitly, do not force the verdict.
+No poll means no MASKPOLL-satisfy dependency on EMU at all.
 
 ### Switching between Exp1 and Exp2
 
@@ -317,6 +310,6 @@ git checkout 830972966c -- test/npu-xrt/debug_halt_probe/test.cpp
 git checkout 9a12651d99 -- test/npu-xrt/debug_halt_probe/aie.mlir
 ```
 
-After restore: run `DEBUG_HALT_PROBE_WITNESS=halt` (the default) for Exp1
+After restore: run with `DEBUG_HALT_PROBE_WITNESS=halt` (the default) for Exp1
 (DEBUG_HALT witness).  Exp2 re-investigation: re-apply the Exp2 aie.mlir/
 test.cpp from their Task 6 commit SHAs.
