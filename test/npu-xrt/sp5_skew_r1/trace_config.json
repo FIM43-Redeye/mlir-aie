@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "test_name": "sp5_skew_r1",
+  "src_mlir": "/home/triple/npu-work/mlir-aie/test/npu-xrt/sp5_skew_r1/gen_src/aie.mlir",
+  "placement": {
+    "origin_col": 0,
+    "origin_row": 0
+  },
+  "buffer": {
+    "size_bytes": 16384,
+    "kernel_arg_slot": 4,
+    "embedded_in_memref_idx": null
+  },
+  "kernel_signature": {
+    "args": [
+      {
+        "slot": 0,
+        "kind": "scalar",
+        "name": "opcode",
+        "ctype": "uint64_t"
+      },
+      {
+        "slot": 1,
+        "kind": "bo",
+        "name": "instr",
+        "role": "instruction_buffer"
+      },
+      {
+        "slot": 2,
+        "kind": "scalar",
+        "name": "ninstr",
+        "ctype": "uint32_t"
+      },
+      {
+        "slot": 3,
+        "kind": "bo",
+        "name": "bo_data0",
+        "role": "data",
+        "memref_idx": 0
+      },
+      {
+        "slot": 4,
+        "kind": "bo",
+        "name": "bo_trace",
+        "role": "trace"
+      }
+    ]
+  },
+  "tracing": {
+    "mode": "event_time",
+    "core_grounding": [
+      "PERF_CNT_2",
+      "INSTR_EVENT_0",
+      "INSTR_EVENT_1"
+    ],
+    "core_sweep": [],
+    "shim_grounding": [],
+    "shim_sweep": [
+      "all"
+    ],
+    "memtile_grounding": [],
+    "memtile_sweep": [
+      "all"
+    ],
+    "memmod_grounding": [],
+    "memmod_sweep": [
+      "DMA_S2MM_0_FINISHED_BD",
+      "DMA_MM2S_0_FINISHED_BD",
+      "DMA_S2MM_1_FINISHED_BD",
+      "DMA_MM2S_1_FINISHED_BD"
+    ]
+  },
+  "tiles_traced": [
+    {
+      "col": 0,
+      "row": 2,
+      "kind": "core",
+      "events": [
+        "PERF_CNT_2",
+        "INSTR_EVENT_0",
+        "INSTR_EVENT_1",
+        "INSTR_VECTOR",
+        "MEMORY_STALL",
+        "STREAM_STALL",
+        "LOCK_STALL",
+        "INSTR_LOCK_ACQUIRE_REQ"
+      ],
+      "packet_id": 1,
+      "module": "core"
+    },
+    {
+      "col": 0,
+      "row": 3,
+      "kind": "core",
+      "events": [
+        "PERF_CNT_2",
+        "INSTR_EVENT_0",
+        "INSTR_EVENT_1",
+        "INSTR_VECTOR",
+        "MEMORY_STALL",
+        "STREAM_STALL",
+        "LOCK_STALL",
+        "INSTR_LOCK_ACQUIRE_REQ"
+      ],
+      "packet_id": 1,
+      "module": "core"
+    },
+    {
+      "col": 0,
+      "row": 4,
+      "kind": "core",
+      "events": [
+        "PERF_CNT_2",
+        "INSTR_EVENT_0",
+        "INSTR_EVENT_1",
+        "INSTR_VECTOR",
+        "MEMORY_STALL",
+        "STREAM_STALL",
+        "LOCK_STALL",
+        "INSTR_LOCK_ACQUIRE_REQ"
+      ],
+      "packet_id": 1,
+      "module": "core"
+    },
+    {
+      "col": 0,
+      "row": 2,
+      "kind": "core",
+      "events": [
+        "DMA_S2MM_0_FINISHED_BD",
+        "DMA_MM2S_0_FINISHED_BD",
+        "DMA_S2MM_1_FINISHED_BD",
+        "DMA_MM2S_1_FINISHED_BD"
+      ],
+      "packet_id": 1,
+      "module": "mem"
+    },
+    {
+      "col": 0,
+      "row": 3,
+      "kind": "core",
+      "events": [
+        "DMA_S2MM_0_FINISHED_BD",
+        "DMA_MM2S_0_FINISHED_BD",
+        "DMA_S2MM_1_FINISHED_BD",
+        "DMA_MM2S_1_FINISHED_BD"
+      ],
+      "packet_id": 1,
+      "module": "mem"
+    },
+    {
+      "col": 0,
+      "row": 4,
+      "kind": "core",
+      "events": [
+        "DMA_S2MM_0_FINISHED_BD",
+        "DMA_MM2S_0_FINISHED_BD",
+        "DMA_S2MM_1_FINISHED_BD",
+        "DMA_MM2S_1_FINISHED_BD"
+      ],
+      "packet_id": 1,
+      "module": "mem"
+    },
+    {
+      "col": 0,
+      "row": 1,
+      "kind": "memtile",
+      "events": [
+        "PORT_RUNNING_0",
+        "PORT_RUNNING_1",
+        "PORT_RUNNING_2",
+        "PORT_RUNNING_3",
+        "PORT_RUNNING_4",
+        "PORT_RUNNING_5",
+        "PORT_RUNNING_6",
+        "PORT_RUNNING_7"
+      ],
+      "packet_id": 1
+    },
+    {
+      "col": 0,
+      "row": 0,
+      "kind": "shim",
+      "events": [
+        "DMA_S2MM_0_START_TASK",
+        "DMA_S2MM_1_START_TASK",
+        "DMA_MM2S_0_START_TASK",
+        "DMA_S2MM_0_FINISHED_TASK",
+        "DMA_S2MM_1_FINISHED_TASK",
+        "DMA_MM2S_0_FINISHED_TASK",
+        "DMA_S2MM_0_STREAM_STARVATION",
+        "DMA_S2MM_1_STREAM_STARVATION"
+      ],
+      "packet_id": 1
+    }
+  ],
+  "routing": {
+    "shim_col": 0,
+    "shim_dma_channel": 1,
+    "shim_bd_id": 15,
+    "trace_done": {
+      "broadcast": 14,
+      "user_event": "USER_EVENT_2"
+    }
+  },
+  "diagnostics": {
+    "expected_address_patch_arg_idx": 1,
+    "expected_runtime_sequence_memref_count": 1
+  }
+}
