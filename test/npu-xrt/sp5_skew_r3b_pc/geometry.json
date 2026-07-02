@@ -6,11 +6,11 @@
     "s2": {"col": 2, "row": 5, "broadcast_channel": 14, "arrival_event": "BROADCAST_14", "generate_event": "USER_EVENT_2"}
   },
   "tiles": [
-    {"col": 0, "row": 3, "kind": "core", "counter_index": 0, "role": "h_west",   "pkt_in": 16, "pkt_out": 32},
-    {"col": 1, "row": 3, "kind": "core", "counter_index": 1, "role": "interior", "pkt_in": 17, "pkt_out": 33},
-    {"col": 2, "row": 3, "kind": "core", "counter_index": 2, "role": "h_east",   "pkt_in": 18, "pkt_out": 34},
-    {"col": 1, "row": 2, "kind": "core", "counter_index": 3, "role": "v_row2",   "pkt_in": 19, "pkt_out": 35},
-    {"col": 1, "row": 4, "kind": "core", "counter_index": 4, "role": "v_row4",   "pkt_in": 20, "pkt_out": 36},
-    {"col": 1, "row": 5, "kind": "core", "counter_index": 5, "role": "v_row5",   "pkt_in": 21, "pkt_out": 37}
+    {"col": 0, "row": 3, "kind": "core", "counter_index": 0, "role": "h_west",   "pkt_in": 8,  "pkt_out": 22},
+    {"col": 1, "row": 3, "kind": "core", "counter_index": 1, "role": "interior", "pkt_in": 18, "pkt_out": 21},
+    {"col": 2, "row": 3, "kind": "core", "counter_index": 2, "role": "h_east",   "pkt_in": 16, "pkt_out": 9},
+    {"col": 1, "row": 2, "kind": "core", "counter_index": 3, "role": "v_row2",   "pkt_in": 20, "pkt_out": 10},
+    {"col": 1, "row": 4, "kind": "core", "counter_index": 4, "role": "v_row4",   "pkt_in": 1,  "pkt_out": 31},
+    {"col": 1, "row": 5, "kind": "core", "counter_index": 5, "role": "v_row5",   "pkt_in": 27, "pkt_out": 7}
   ]
 }
