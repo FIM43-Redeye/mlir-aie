@@ -51,8 +51,10 @@ Per measured tile, a **packet-mode `dma_memcpy_nd`** carrying
 `packet = <pkt_id = <geometry pkt_in>, pkt_type = 1>` pushes a **1-word OP_READ
 control header** into that tile's `TileControl` port. The tile returns one
 response word (the counter value) via `TileControl -> shim S2MM (@perf_resp)`
-into the readback BO. Responses arrive in issue (= counter_index) order,
-little-endian u32 -- exactly what `observe_r3b` parses.
+into the readback BO. The readback maps BO word `k` -> counter_index `k`, which
+assumes the six one-word responses land in issue order -- a silicon-runtime
+property, NOT a structural guarantee (SP-5c unknown; see the unresolved list
+below). Little-endian u32 -- exactly what `observe_r3b` parses.
 
 **Deviation from the plan's Readback Design (verified wrong against the
 toolchain + emulator).** The plan (`docs/superpowers/plans/2026-07-01-sp5b-r3b-pc-kernel.md`,
@@ -64,9 +66,11 @@ in-band routing word arrives at the tile as payload and is mis-parsed as a
 control opcode. Confirmed on the emulator: with the 2-word format every packet
 routed to a single tile (pkt_id 1) and word 0 (`0x00000008`) was read as a
 `Write` to address `0x8`. The correct mechanism routes on the per-push
-`packet` attribute pkt_id (proven by `add_one_ctrl_packet_4_cores`). The merged
-Task-2 `--ctrlpkt` binary (`r3b_ctrlpkt.py`) is **consumed unchanged**: only its
-control header (word `2k+1`) is pushed; its routing header (word `2k`) is dead.
+`packet` attribute pkt_id (proven by `add_one_ctrl_packet_4_cores`). The Task-2
+`--ctrlpkt` binary (`r3b_ctrlpkt.py`) emits **one control header per tile**
+(word `k`, `stream_id = pkt_out`); request routing is carried by the `packet`
+attribute (`pkt_id = pkt_in`), so no in-band routing word exists and the kernel's
+push `k` reads word `k`.
 
 **Packet-ID assignment.** `pkt_in`/`pkt_out` (in `geometry.json`) were revised
 from the plan's placeholders (16-21 / 32-37; 32+ exceeds the 5-bit packet-ID
@@ -160,9 +164,24 @@ value is SP-5c's silicon proof.
   `0x31520` is the same core-module class, high confidence but unverified for
   perf registers), fall back to a post-run core `LDA 0x31520 -> store -> DMA
   out`. Record which path was used.
+- (c) If the six responses do NOT arrive in issue order on silicon (see the
+  unresolved list), tag each response with its source -- either a per-push
+  `dma_wait` between requests (serializes, so arrival order is forced), or a
+  self-identifying response word -- so BO slot maps unambiguously to
+  counter_index. Do NOT rely on the range-0 gate to catch this: a *consistent*
+  reorder is reproducible and would pass the gate while mislabeling every tile.
 
-**Genuinely unresolved until HW (SP-5c):** whether a control-packet OP_READ of
-`Performance_Counter0` returns the live counter value on Phoenix silicon, and
-whether broadcast floods on channels 14/15 arrive as `BROADCAST_14/15` events
-that drive the counter. The emulator smoke-run validates the plumbing shape;
-the silicon read is the SP-5c gate's first real proof, with fallback (b) ready.
+**Genuinely unresolved until HW (SP-5c):**
+1. Whether a control-packet OP_READ of `Performance_Counter0` returns the live
+   counter value on Phoenix silicon (fallback (b) ready).
+2. Whether broadcast floods on channels 14/15 arrive as `BROADCAST_14/15` events
+   that drive the counter.
+3. **Whether the six one-word responses arrive at the shim S2MM in issue (=
+   counter_index) order.** All six drain onto one channel via a single
+   `dma_wait`, so the BO-slot -> tile mapping depends on fabric delivery order;
+   a *consistent* reorder would pass the range-0 reproducibility gate yet hand
+   SP-5c a reproducibly-mislabeled skew. Fallback (c) is the fix. The bring-up
+   capture should check this directly (e.g. distinct expected per-tile values).
+
+The emulator smoke-run validates the plumbing shape (and happened to preserve
+response order); the silicon read is the SP-5c gate's first real proof.

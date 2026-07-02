@@ -47,8 +47,8 @@
 // mis-parsed as a control opcode (confirmed on the emulator: every packet
 // then routed to one tile and was read as a Write). The correct mechanism
 // routes via the `packet` attribute (proven by add_one_ctrl_packet_4_cores).
-// The merged Task-2 --ctrlpkt binary is consumed unchanged: only its control
-// header (word 2k+1) is used; its routing header (word 2k) is dead. See README.
+// The Task-2 --ctrlpkt binary emits one control header per tile (word k);
+// request routing is carried by the per-push `packet` attribute, not in-band. See README.
 //
 // HOST BINDING (bridge-trace-runner classifier, verified against the
 // classifier in xdna-emu/src/npu/classify.rs):
@@ -152,21 +152,19 @@ module {
 
     // Runtime sequence args:
     //   %ctrlin   = OP_READ request stream from --ctrlpkt (Task 2). r3b_ctrlpkt.py
-    //               emits 2 words/tile: word[2k]=routing header (UNUSED here -- see
-    //               README "Readback mechanism"; routing is carried by the per-push
-    //               `packet` attribute, not in-band data) and word[2k+1]=control
-    //               header (stream_id=pkt_out, op=READ, addr=0x31520). Each push
-    //               reads only the control header at word 2k+1.
+    //               emits 1 word/tile: word[k] = control header (stream_id=pkt_out,
+    //               op=READ, addr=0x31520). Routing to the tile is carried by the
+    //               per-push `packet` attribute (pkt_id=pkt_in), NOT in-band data,
+    //               so push k reads word k.
     //   %readback = counter response words (6 x u32), dumped via --trace-out.
-    aie.runtime_sequence @seq(%ctrlin: memref<12xi32>, %readback: memref<6xi32>) {
+    aie.runtime_sequence @seq(%ctrlin: memref<6xi32>, %readback: memref<6xi32>) {
       %c0_i64 = arith.constant 0 : i64
       %c1_i64 = arith.constant 1 : i64
+      %c2_i64 = arith.constant 2 : i64
       %c3_i64 = arith.constant 3 : i64
+      %c4_i64 = arith.constant 4 : i64
       %c5_i64 = arith.constant 5 : i64
       %c6_i64 = arith.constant 6 : i64
-      %c7_i64 = arith.constant 7 : i64
-      %c9_i64 = arith.constant 9 : i64
-      %c11_i64 = arith.constant 11 : i64
 
       // ---- Step 2: Performance-counter config (before any Event_Generate) ----
       // Per measured tile: zero Performance_Counter0, then arm
@@ -221,18 +219,18 @@ module {
       // TARGET address 0x31520 lives in that control header, not in this MLIR.
       // Responses return via each tile's outbound packet_flow(pkt_out) to the
       // shim S2MM @perf_resp, arriving in issue (= counter_index) order.
-      // t0 (0,3) counter_index 0: pkt_in 8, control header @ word 1.
-      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c1_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 8, pkt_type = 1>) {id = 2 : i64, issue_token = true, metadata = @ctrlin} : memref<12xi32>
-      // t1 (1,3) counter_index 1: pkt_in 18, control header @ word 3.
-      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c3_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 18, pkt_type = 1>) {id = 3 : i64, issue_token = true, metadata = @ctrlin} : memref<12xi32>
-      // t2 (2,3) counter_index 2: pkt_in 16, control header @ word 5.
-      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c5_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 16, pkt_type = 1>) {id = 4 : i64, issue_token = true, metadata = @ctrlin} : memref<12xi32>
-      // t3 (1,2) counter_index 3: pkt_in 20, control header @ word 7.
-      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c7_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 20, pkt_type = 1>) {id = 5 : i64, issue_token = true, metadata = @ctrlin} : memref<12xi32>
-      // t4 (1,4) counter_index 4: pkt_in 1, control header @ word 9.
-      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c9_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 1, pkt_type = 1>) {id = 6 : i64, issue_token = true, metadata = @ctrlin} : memref<12xi32>
-      // t5 (1,5) counter_index 5: pkt_in 27, control header @ word 11.
-      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c11_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 27, pkt_type = 1>) {id = 7 : i64, issue_token = true, metadata = @ctrlin} : memref<12xi32>
+      // t0 (0,3) counter_index 0: pkt_in 8, control header @ word 0.
+      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c0_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 8, pkt_type = 1>) {id = 2 : i64, issue_token = true, metadata = @ctrlin} : memref<6xi32>
+      // t1 (1,3) counter_index 1: pkt_in 18, control header @ word 1.
+      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c1_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 18, pkt_type = 1>) {id = 3 : i64, issue_token = true, metadata = @ctrlin} : memref<6xi32>
+      // t2 (2,3) counter_index 2: pkt_in 16, control header @ word 2.
+      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c2_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 16, pkt_type = 1>) {id = 4 : i64, issue_token = true, metadata = @ctrlin} : memref<6xi32>
+      // t3 (1,2) counter_index 3: pkt_in 20, control header @ word 3.
+      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c3_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 20, pkt_type = 1>) {id = 5 : i64, issue_token = true, metadata = @ctrlin} : memref<6xi32>
+      // t4 (1,4) counter_index 4: pkt_in 1, control header @ word 4.
+      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c4_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 1, pkt_type = 1>) {id = 6 : i64, issue_token = true, metadata = @ctrlin} : memref<6xi32>
+      // t5 (1,5) counter_index 5: pkt_in 27, control header @ word 5.
+      aiex.npu.dma_memcpy_nd(%ctrlin[%c0_i64, %c0_i64, %c0_i64, %c5_i64] [%c1_i64, %c1_i64, %c1_i64, %c1_i64] [%c0_i64, %c0_i64, %c0_i64, %c1_i64], packet = <pkt_id = 27, pkt_type = 1>) {id = 7 : i64, issue_token = true, metadata = @ctrlin} : memref<6xi32>
 
       // Drain the MM2S request channel, then wait for the six response words.
       aiex.npu.sync {channel = 0 : i32, column = 0 : i32, column_num = 1 : i32, direction = 1 : i32, row = 0 : i32, row_num = 1 : i32}
