@@ -1,0 +1,16 @@
+{
+  "target": "npu1_3col",
+  "comment": "R3b-PC skew instrument. s1 flood on broadcast ch15 (BROADCAST_15=122), s2 on ch14 (BROADCAST_14=121). Perf-counter arms START=122 STOP=121. Model {d_h,d_v} only; horizontal isotropy ASSUMED (see r3b_extract.py header + identifiability finding). Virtual frame: rows 0 shim / 1 memtile / 2-5 core.",
+  "sources": {
+    "s1": {"col": 0, "row": 0, "broadcast_channel": 15, "arrival_event": "BROADCAST_15", "generate_event": "USER_EVENT_0"},
+    "s2": {"col": 2, "row": 5, "broadcast_channel": 14, "arrival_event": "BROADCAST_14", "generate_event": "USER_EVENT_2"}
+  },
+  "tiles": [
+    {"col": 0, "row": 3, "kind": "core", "counter_index": 0, "role": "h_west",   "pkt_in": 16, "pkt_out": 32},
+    {"col": 1, "row": 3, "kind": "core", "counter_index": 1, "role": "interior", "pkt_in": 17, "pkt_out": 33},
+    {"col": 2, "row": 3, "kind": "core", "counter_index": 2, "role": "h_east",   "pkt_in": 18, "pkt_out": 34},
+    {"col": 1, "row": 2, "kind": "core", "counter_index": 3, "role": "v_row2",   "pkt_in": 19, "pkt_out": 35},
+    {"col": 1, "row": 4, "kind": "core", "counter_index": 4, "role": "v_row4",   "pkt_in": 20, "pkt_out": 36},
+    {"col": 1, "row": 5, "kind": "core", "counter_index": 5, "role": "v_row5",   "pkt_in": 21, "pkt_out": 37}
+  ]
+}
