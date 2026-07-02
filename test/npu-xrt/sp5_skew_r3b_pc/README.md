@@ -154,7 +154,21 @@ broadcast arrivals, which is expected: this run validates the **plumbing**
 (config + generate + route + read-back), not the interval value. The counter
 value is SP-5c's silicon proof.
 
-## Two fallbacks (build only if the primary is disproven on HW at SP-5c)
+### Evidence (2026-07-01, Phoenix NPU1 silicon) -- APPARATUS VALIDATED
+
+`r3b_pc_gate.sh 3` on real hardware (after `xrt-smi validate` exit 0). All 3 runs
+clean (`rc=0`, zero TDR/IOMMU delta), counters **identical across runs**
+(range-0): `[137, 129, 121, 133, 125, 121]` (counter_index order). Fit through
+the merged extractor: `d_h ≈ 4`, `d_v ≈ 2` (raw counter-cycle units),
+`fit_residual ≈ 7e-15`, exact against the geometry with `const = 131`. **All
+three HW-gated unknowns resolved positively** (OP_READ returns live values;
+broadcasts drive the counter; responses arrive in issue order -- the six values
+fit the geometry at zero residual, so no reorder). Fallbacks (b) and (c) are NOT
+needed. **This is a bring-up datapoint, NOT a calibrated skew:** `d_h/d_v` fold
+clock-skew with broadcast latency; interpretation + the `calibrated` flip are
+SP-5c. Full record: `xdna-emu/docs/superpowers/findings/2026-07-01-r3b-pc-silicon-bringup.md`.
+
+## Two fallbacks (proven UNNECESSARY on silicon 2026-07-01; kept for the record)
 
 - (a) If `bridge-trace-runner`'s `--ctrlpkt` classification mis-binds, embed the
   request stream as an MLIR `memref.global` constant and DMA from it, removing
@@ -171,17 +185,13 @@ value is SP-5c's silicon proof.
   counter_index. Do NOT rely on the range-0 gate to catch this: a *consistent*
   reorder is reproducible and would pass the gate while mislabeling every tile.
 
-**Genuinely unresolved until HW (SP-5c):**
-1. Whether a control-packet OP_READ of `Performance_Counter0` returns the live
-   counter value on Phoenix silicon (fallback (b) ready).
-2. Whether broadcast floods on channels 14/15 arrive as `BROADCAST_14/15` events
-   that drive the counter.
-3. **Whether the six one-word responses arrive at the shim S2MM in issue (=
-   counter_index) order.** All six drain onto one channel via a single
-   `dma_wait`, so the BO-slot -> tile mapping depends on fabric delivery order;
-   a *consistent* reorder would pass the range-0 reproducibility gate yet hand
-   SP-5c a reproducibly-mislabeled skew. Fallback (c) is the fix. The bring-up
-   capture should check this directly (e.g. distinct expected per-tile values).
+**Resolved on silicon (2026-07-01) -- were the HW-gated unknowns:**
+1. OP_READ of `Performance_Counter0` returns the live value on Phoenix. RESOLVED.
+2. Broadcast floods on ch14/15 drive the counter. RESOLVED.
+3. The six responses arrive in issue (= counter_index) order (the six values fit
+   the geometry at zero residual). RESOLVED.
 
-The emulator smoke-run validates the plumbing shape (and happened to preserve
-response order); the silicon read is the SP-5c gate's first real proof.
+**Still SP-5c (interpretation + validation, NOT plumbing):** whether/what fraction
+of the per-hop interval-differential is clock skew vs broadcast latency; falsifying
+(not just fitting) the model structure on richer geometry; the pre-flip gates; and
+the one-way `calibrated` flip. See the bring-up finding.
