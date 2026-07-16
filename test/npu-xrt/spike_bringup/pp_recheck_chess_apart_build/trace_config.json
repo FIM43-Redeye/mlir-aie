@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "test_name": "pp_recheck_chess_apart_src",
+  "src_mlir": "/home/triple/npu-work/mlir-aie/test/npu-xrt/spike_bringup/pp_recheck_chess_apart_src/aie.mlir",
+  "placement": {
+    "origin_col": 0,
+    "origin_row": 2
+  },
+  "buffer": {
+    "size_bytes": 16384,
+    "kernel_arg_slot": 4,
+    "embedded_in_memref_idx": null
+  },
+  "kernel_signature": {
+    "args": [
+      {
+        "slot": 0,
+        "kind": "scalar",
+        "name": "opcode",
+        "ctype": "uint64_t"
+      },
+      {
+        "slot": 1,
+        "kind": "bo",
+        "name": "instr",
+        "role": "instruction_buffer"
+      },
+      {
+        "slot": 2,
+        "kind": "scalar",
+        "name": "ninstr",
+        "ctype": "uint32_t"
+      },
+      {
+        "slot": 3,
+        "kind": "bo",
+        "name": "bo_data0",
+        "role": "data",
+        "memref_idx": 0
+      },
+      {
+        "slot": 4,
+        "kind": "bo",
+        "name": "bo_trace",
+        "role": "trace"
+      }
+    ]
+  },
+  "tracing": {
+    "mode": "event_time",
+    "core_grounding": [
+      "PERF_CNT_2",
+      "INSTR_EVENT_0",
+      "INSTR_EVENT_1"
+    ],
+    "core_sweep": [
+      "MEMORY_STALL",
+      "LOCK_STALL",
+      "PORT_RUNNING_1",
+      "STREAM_STALL"
+    ],
+    "shim_grounding": [],
+    "shim_sweep": [],
+    "memtile_grounding": [],
+    "memtile_sweep": [],
+    "memmod_grounding": [],
+    "memmod_sweep": [
+      "DMA_MM2S_0_FINISHED_BD",
+      "DMA_MM2S_0_STALLED_LOCK",
+      "CONFLICT_DM_BANK_0",
+      "CONFLICT_DM_BANK_1",
+      "CONFLICT_DM_BANK_2",
+      "CONFLICT_DM_BANK_3",
+      "DMA_MM2S_0_MEMORY_STARVATION",
+      "DMA_MM2S_0_STREAM_BACKPRESSURE"
+    ]
+  },
+  "tiles_traced": [
+    {
+      "col": 0,
+      "row": 2,
+      "kind": "core",
+      "events": [
+        "PERF_CNT_2",
+        "INSTR_EVENT_0",
+        "INSTR_EVENT_1",
+        "MEMORY_STALL",
+        "LOCK_STALL",
+        "PORT_RUNNING_1",
+        "STREAM_STALL"
+      ],
+      "packet_id": 1,
+      "module": "core"
+    },
+    {
+      "col": 0,
+      "row": 2,
+      "kind": "core",
+      "events": [
+        "DMA_MM2S_0_FINISHED_BD",
+        "DMA_MM2S_0_STALLED_LOCK",
+        "CONFLICT_DM_BANK_0",
+        "CONFLICT_DM_BANK_1",
+        "CONFLICT_DM_BANK_2",
+        "CONFLICT_DM_BANK_3",
+        "DMA_MM2S_0_MEMORY_STARVATION",
+        "DMA_MM2S_0_STREAM_BACKPRESSURE"
+      ],
+      "packet_id": 1,
+      "module": "mem"
+    }
+  ],
+  "routing": {
+    "shim_col": 0,
+    "shim_dma_channel": 1,
+    "shim_bd_id": 15,
+    "trace_done": {
+      "broadcast": 14,
+      "user_event": "USER_EVENT_2"
+    }
+  },
+  "diagnostics": {
+    "expected_address_patch_arg_idx": 1,
+    "expected_runtime_sequence_memref_count": 1
+  }
+}

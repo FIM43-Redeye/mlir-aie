@@ -1,0 +1,18 @@
+# Regenerable aiecc/build output from #140 research scratch (xdna-emu-cycle-budget).
+# Source (.mlir/.py/.cpp/.json/.md/.lit) is tracked; everything below rebuilds
+# from it, so it is excluded to keep the branch source-only.
+*.mlir.prj/
+build_*/
+*.xclbin
+insts.bin
+*.pdi
+*.o
+*.log
+__pycache__/
+*.pyc
+
+# Cross-repo convenience symlinks into xdna-emu/tests/vector-verify/ (absolute,
+# machine-specific). The real content is version-controlled in xdna-emu.
+vec_nan_*
+vec_seed*
+vec_chain_state_probe

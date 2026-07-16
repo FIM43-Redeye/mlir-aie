@@ -1,0 +1,13 @@
+// (c) Copyright 2026 Advanced Micro Devices, Inc.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+// On-chip 2-hop cross-column spike kernel (SP-3 Q=0 de-risk, issue #140).
+// Chess is the ground-truth compiler; the bridge harness injects --xchesscc
+// --xbridge.  Data is born on-chip (memtile relay, no DDR data path); the only
+// host BO is the trace buffer, so the host validates trace presence, not data.
+//
+// REQUIRES: ryzen_ai_npu1, chess
+//
+// RUN: %python aiecc.py --no-aiesim --aie-generate-xclbin --aie-generate-npu-insts --no-compile-host --xclbin-name=aie.xclbin --npu-insts-name=insts.bin %S/aie.mlir
+// RUN: clang %S/test.cpp -o test.exe -std=c++17 -Wall %xrt_flags -lrt -lstdc++ %test_utils_flags
+// RUN: %run_on_npu1% ./test.exe -x aie.xclbin -k MLIR_AIE -i insts.bin

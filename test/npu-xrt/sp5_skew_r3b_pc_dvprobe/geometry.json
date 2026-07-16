@@ -1,0 +1,16 @@
+{
+  "target": "npu1_3col",
+  "comment": "SP-5c d_v SOUTH-FLOOD BUILDABILITY PROBE. Derived from the R3b-PC instrument by relocating s2 to the mid-column (1,3) -- the middle of the col-1 vertical spine. PASS = counter_index 3 (tile (1,2), one south hop below s2) reads a small deterministic range-0 interval => a mid-column source floods south => the Phase-3 two-sided R1 spine is buildable. FAIL = (1,2) free-runs to a large varying value (confined-d_h signature) => south-confined. counter_index 1 (tile (1,3)) is now the SOURCE; ignore its reading. Not a skew measurement.",
+  "sources": {
+    "s1": {"col": 0, "row": 0, "broadcast_channel": 15, "arrival_event": "BROADCAST_15", "generate_event": "USER_EVENT_0"},
+    "s2": {"col": 1, "row": 3, "broadcast_channel": 14, "arrival_event": "BROADCAST_14", "generate_event": "USER_EVENT_2"}
+  },
+  "tiles": [
+    {"col": 0, "row": 3, "kind": "core", "counter_index": 0, "role": "h_west",   "pkt_in": 8,  "pkt_out": 22},
+    {"col": 1, "row": 3, "kind": "core", "counter_index": 1, "role": "interior", "pkt_in": 18, "pkt_out": 21},
+    {"col": 2, "row": 3, "kind": "core", "counter_index": 2, "role": "h_east",   "pkt_in": 16, "pkt_out": 9},
+    {"col": 1, "row": 2, "kind": "core", "counter_index": 3, "role": "v_row2",   "pkt_in": 20, "pkt_out": 10},
+    {"col": 1, "row": 4, "kind": "core", "counter_index": 4, "role": "v_row4",   "pkt_in": 1,  "pkt_out": 31},
+    {"col": 1, "row": 5, "kind": "core", "counter_index": 5, "role": "v_row5",   "pkt_in": 27, "pkt_out": 7}
+  ]
+}
