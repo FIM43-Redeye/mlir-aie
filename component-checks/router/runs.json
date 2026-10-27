@@ -1,0 +1,43 @@
+{
+ "schema": 1,
+ "target": "router",
+ "metrics": [
+  "amsels_per_design",
+  "failed_mutations",
+  "failed_properties",
+  "hop_ratio",
+  "illegal",
+  "ms_per_design",
+  "survived_corruptions",
+  "unrouted"
+ ],
+ "runs": [
+  {
+   "schema": 1,
+   "target": "router",
+   "id": "40476927712",
+   "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712",
+   "date": "2026-10-27T08:55:26+00:00",
+   "commit": {
+    "id": "fab39c5717a885ad237dc9f2908580708a019ca7",
+    "url": "https://github.com/Xilinx/mlir-aie/commit/fab39c5717a885ad237dc9f2908580708a019ca7",
+    "message": "[AIEX] Share shim allocation lookup across memcpy verification [MED] (#3764)",
+    "timestamp": "2026-10-26T22:07:10Z"
+   },
+   "event": "schedule",
+   "pmode": null,
+   "device": "AMD EPYC 7763 64-Core Processor",
+   "device_raw": null,
+   "provenance": {
+    "commit": "fab39c5717",
+    "cpu": "AMD EPYC 7763 64-Core Processor"
+   },
+   "sane": true,
+   "published": true,
+   "n_rows": 24,
+   "exitstatus": 0,
+   "failed": [],
+   "truncated": []
+  }
+ ]
+}
