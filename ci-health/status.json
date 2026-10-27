@@ -1,0 +1,713 @@
+{
+ "schema": 1,
+ "generated_at": "2026-10-27T12:41:31+00:00",
+ "repo": "FIM43-Redeye/mlir-aie",
+ "window_days": 14,
+ "critical": [
+  {
+   "file": "buildAndTestRyzenAI.yml",
+   "title": "Linux hardware tests",
+   "every": 24,
+   "legs": true,
+   "why": "lit and IRON tests on npu1 and npu2; the only hardware test of main",
+   "runs": 0,
+   "main": {
+    "passed": 0,
+    "failed": 0,
+    "timed_out": 0,
+    "runner_lost": 0,
+    "no_runner": 0,
+    "cancelled": 0,
+    "rate": null
+   },
+   "latest_main": null,
+   "newest_main": null,
+   "latest_main_jobs": null,
+   "main_runs": [],
+   "pull_requests": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "merge_queue": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "flaky": {
+    "commits": 0,
+    "flaky": 0,
+    "rate": null
+   },
+   "minutes_median": null,
+   "minutes_p90": null,
+   "queued_median": null
+  },
+  {
+   "file": "buildAndTestRyzenAIWindows.yml",
+   "title": "Windows hardware tests",
+   "every": 24,
+   "legs": true,
+   "why": "the same on a Windows Strix Halo machine",
+   "runs": 0,
+   "main": {
+    "passed": 0,
+    "failed": 0,
+    "timed_out": 0,
+    "runner_lost": 0,
+    "no_runner": 0,
+    "cancelled": 0,
+    "rate": null
+   },
+   "latest_main": null,
+   "newest_main": null,
+   "latest_main_jobs": null,
+   "main_runs": [],
+   "pull_requests": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "merge_queue": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "flaky": {
+    "commits": 0,
+    "flaky": 0,
+    "rate": null
+   },
+   "minutes_median": null,
+   "minutes_p90": null,
+   "queued_median": null
+  },
+  {
+   "file": "buildAndTestMulti.yml",
+   "title": "Compile across platforms",
+   "every": 24,
+   "legs": false,
+   "why": "compilers, assertions and RTTI on Linux and Windows",
+   "runs": 0,
+   "main": {
+    "passed": 0,
+    "failed": 0,
+    "timed_out": 0,
+    "runner_lost": 0,
+    "no_runner": 0,
+    "cancelled": 0,
+    "rate": null
+   },
+   "latest_main": null,
+   "newest_main": null,
+   "latest_main_jobs": null,
+   "main_runs": [],
+   "pull_requests": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "merge_queue": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "flaky": {
+    "commits": 0,
+    "flaky": 0,
+    "rate": null
+   },
+   "minutes_median": null,
+   "minutes_p90": null,
+   "queued_median": null
+  },
+  {
+   "file": "buildAndTestPythons.yml",
+   "title": "Python versions",
+   "every": 24,
+   "legs": false,
+   "why": "the tests on each supported Python",
+   "runs": 0,
+   "main": {
+    "passed": 0,
+    "failed": 0,
+    "timed_out": 0,
+    "runner_lost": 0,
+    "no_runner": 0,
+    "cancelled": 0,
+    "rate": null
+   },
+   "latest_main": null,
+   "newest_main": null,
+   "latest_main_jobs": null,
+   "main_runs": [],
+   "pull_requests": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "merge_queue": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "flaky": {
+    "commits": 0,
+    "flaky": 0,
+    "rate": null
+   },
+   "minutes_median": null,
+   "minutes_p90": null,
+   "queued_median": null
+  },
+  {
+   "file": "lintAndFormat.yml",
+   "title": "Lint and format",
+   "every": 24,
+   "legs": false,
+   "why": "clang-tidy, pyright and the docs checks",
+   "runs": 0,
+   "main": {
+    "passed": 0,
+    "failed": 0,
+    "timed_out": 0,
+    "runner_lost": 0,
+    "no_runner": 0,
+    "cancelled": 0,
+    "rate": null
+   },
+   "latest_main": null,
+   "newest_main": null,
+   "latest_main_jobs": null,
+   "main_runs": [],
+   "pull_requests": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "merge_queue": {
+    "passed": 0,
+    "failed": 0,
+    "rate": null
+   },
+   "flaky": {
+    "commits": 0,
+    "flaky": 0,
+    "rate": null
+   },
+   "minutes_median": null,
+   "minutes_p90": null,
+   "queued_median": null
+  }
+ ],
+ "merge_time": {
+  "merged": 0,
+  "hours_median": null,
+  "hours_p90": null,
+  "open": 0,
+  "open_drafts": 0,
+  "open_over_30_days": 0
+ },
+ "workflows": [
+  {
+   "file": "nightlyKernelChecks.yml",
+   "title": "Kernel checks",
+   "every": 24,
+   "legs": true,
+   "why": "the Kernels section's numbers; a leg that found no runner publishes nothing",
+   "runs": [
+    {
+     "id": 40494519170,
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40494519170",
+     "status": "in_progress",
+     "conclusion": null,
+     "created_at": "2026-10-27T11:13:30Z",
+     "run_started_at": "2026-10-27T11:13:30Z",
+     "updated_at": "2026-10-27T11:13:33Z",
+     "head_sha": "fab39c5717a885ad237dc9f2908580708a019ca7",
+     "title": "Nightly Kernel Checks on Ryzen AI",
+     "attempt": 1
+    }
+   ],
+   "jobs": [
+    {
+     "name": "runners / pick",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40494519170/job/122156467804",
+     "status": "in_progress",
+     "conclusion": null,
+     "created_at": "2026-10-27T11:13:30Z",
+     "started_at": "2026-10-27T11:13:32Z",
+     "runner": "GitHub Actions 1000000520"
+    }
+   ]
+  },
+  {
+   "file": "nightlyComponentChecks.yml",
+   "title": "Placement and performance checks",
+   "every": 24,
+   "legs": true,
+   "why": "the Performance and Placement sections' numbers",
+   "runs": [
+    {
+     "id": 40504700093,
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40504700093",
+     "status": "in_progress",
+     "conclusion": null,
+     "created_at": "2026-10-27T12:33:30Z",
+     "run_started_at": "2026-10-27T12:33:30Z",
+     "updated_at": "2026-10-27T12:33:33Z",
+     "head_sha": "fab39c5717a885ad237dc9f2908580708a019ca7",
+     "title": "Nightly Component Checks",
+     "attempt": 1
+    }
+   ],
+   "jobs": [
+    {
+     "name": "SA placer seed sweep (CPU-only)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40504700093/job/122190914957",
+     "status": "in_progress",
+     "conclusion": null,
+     "created_at": "2026-10-27T12:33:30Z",
+     "started_at": "2026-10-27T12:33:33Z",
+     "runner": "GitHub Actions 1000000521"
+    },
+    {
+     "name": "runners / pick",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40504700093/job/122190915386",
+     "status": "in_progress",
+     "conclusion": null,
+     "created_at": "2026-10-27T12:33:30Z",
+     "started_at": "2026-10-27T12:33:32Z",
+     "runner": "GitHub Actions 1000000522"
+    }
+   ]
+  },
+  {
+   "file": "modelBasedTests.yml",
+   "title": "Model-based tests",
+   "every": 24,
+   "legs": true,
+   "why": "the buffer allocator and the packet router against their models at many times check-aie's scale; the Routing and Placement sections' numbers",
+   "runs": [
+    {
+     "id": 40476927712,
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T08:55:26Z",
+     "run_started_at": "2026-10-27T08:55:26Z",
+     "updated_at": "2026-10-27T09:35:08Z",
+     "head_sha": "fab39c5717a885ad237dc9f2908580708a019ca7",
+     "title": "Model-based tests",
+     "attempt": 1
+    }
+   ],
+   "jobs": [
+    {
+     "name": "Build, allocator and router lit tests",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122097340501",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T08:55:27Z",
+     "started_at": "2026-10-27T08:55:28Z",
+     "runner": "GitHub Actions 1000000484",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router hops-on, npu1",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281607",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:50Z",
+     "runner": "GitHub Actions 1000000485",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router properties, npu1",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281633",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:51Z",
+     "runner": "GitHub Actions 1000000487",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router hops-on, npu2",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281723",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:51Z",
+     "runner": "GitHub Actions 1000000488",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router hops-off, npu1",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281736",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:50Z",
+     "runner": "GitHub Actions 1000000486",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router hops-off, npu2",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281738",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:51Z",
+     "runner": "GitHub Actions 1000000492",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router properties, npu2",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281786",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:51Z",
+     "runner": "GitHub Actions 1000000491",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router hops-off, xcvc1902",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281820",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:50Z",
+     "runner": "GitHub Actions 1000000489",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router hops-on, xcvc1902",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281936",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:50Z",
+     "runner": "GitHub Actions 1000000493",
+     "outcome": "passed"
+    },
+    {
+     "name": "Router properties, xcvc1902",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122108281940",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:21:48Z",
+     "started_at": "2026-10-27T09:21:50Z",
+     "runner": "GitHub Actions 1000000490",
+     "outcome": "passed"
+    },
+    {
+     "name": "Collect results",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122113759367",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:34:36Z",
+     "started_at": "2026-10-27T09:34:38Z",
+     "runner": "GitHub Actions 1000000501",
+     "outcome": "passed"
+    },
+    {
+     "name": "publish",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40476927712/job/122113864533",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:34:51Z",
+     "started_at": "2026-10-27T09:34:53Z",
+     "runner": "GitHub Actions 1000000502",
+     "outcome": "passed"
+    }
+   ]
+  },
+  {
+   "file": "buildRyzenWheels.yml",
+   "title": "Ryzen AI wheels",
+   "every": 24,
+   "legs": true,
+   "why": "refreshes the latest-wheels releases users install from",
+   "runs": [
+    {
+     "id": 40481876450,
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450",
+     "status": "queued",
+     "conclusion": null,
+     "created_at": "2026-10-27T09:34:59Z",
+     "run_started_at": "2026-10-27T09:34:59Z",
+     "updated_at": "2026-10-27T09:55:42Z",
+     "head_sha": "fab39c5717a885ad237dc9f2908580708a019ca7",
+     "title": "Publish Ryzen AI wheels",
+     "attempt": 1
+    }
+   ],
+   "jobs": [
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheel (Linux 3.12 RTTI ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113926820",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000503",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.11, ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927022",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000504",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.13, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927095",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000507",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.11, ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927135",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:01Z",
+     "runner": "GitHub Actions 1000000505",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheel (Windows 3.13 RTTI ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927188",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000509",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.12, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927197",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000506",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.13, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927211",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000510",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.14, ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927223",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000508",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.12, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927299",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000512",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.14, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927340",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000513",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.11, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927403",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000518",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Linux wheels / Build and upload mlir_aie wheels (Linux) (3.13, ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927423",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000511",
+     "outcome": "failed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.14, ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927451",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000515",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.14, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927492",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000516",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.12, ON)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927558",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000514",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Build and upload mlir_aie wheels (Windows) (3.11, OFF)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122113927870",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:35:00Z",
+     "started_at": "2026-10-27T09:35:02Z",
+     "runner": "GitHub Actions 1000000517",
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Linux wheels / Smoke-Test Wheel on Ryzen AI",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122115622815",
+     "status": "completed",
+     "conclusion": "skipped",
+     "created_at": "2026-10-27T09:38:57Z",
+     "started_at": "2026-10-27T09:38:57Z",
+     "runner": null,
+     "outcome": "passed"
+    },
+    {
+     "name": "Build Windows wheels / Smoke-Test Wheel on Ryzen AI (Windows)",
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40481876450/job/122122847044",
+     "status": "queued",
+     "conclusion": null,
+     "created_at": "2026-10-27T09:55:42Z",
+     "started_at": "2026-10-27T09:55:42Z",
+     "runner": ""
+    }
+   ]
+  },
+  {
+   "file": "mlirDistro.yml",
+   "title": "MLIR distro from LLVM head",
+   "every": 4,
+   "why": "early warning that upstream LLVM broke the build",
+   "runs": [
+    {
+     "id": 40480909825,
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40480909825",
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-10-27T09:27:25Z",
+     "run_started_at": "2026-10-27T09:27:25Z",
+     "updated_at": "2026-10-27T09:32:57Z",
+     "head_sha": "fab39c5717a885ad237dc9f2908580708a019ca7",
+     "title": "MLIR Distro",
+     "attempt": 1
+    }
+   ],
+   "jobs": null
+  },
+  {
+   "file": "pruneReleaseAssets.yml",
+   "title": "Prune release assets",
+   "every": 24,
+   "why": "keeps dev-wheels under 1,000 assets; when it stops, PR wheel uploads fail",
+   "runs": [
+    {
+     "id": 40483640389,
+     "url": "https://github.com/FIM43-Redeye/mlir-aie/actions/runs/40483640389",
+     "status": "completed",
+     "conclusion": "failure",
+     "created_at": "2026-10-27T09:48:51Z",
+     "run_started_at": "2026-10-27T09:48:51Z",
+     "updated_at": "2026-10-27T09:48:57Z",
+     "head_sha": "fab39c5717a885ad237dc9f2908580708a019ca7",
+     "title": "Prune release assets",
+     "attempt": 1
+    }
+   ],
+   "jobs": null
+  },
+  {
+   "file": "buildAndTestRyzenAISw.yml",
+   "title": "Ryzen AI Software build",
+   "every": 24,
+   "why": "the Docker build against Ryzen AI Software",
+   "runs": [],
+   "jobs": null
+  },
+  {
+   "file": "codeCoverage.yml",
+   "title": "Code coverage",
+   "every": 24,
+   "why": "the coverage report, as an artifact",
+   "runs": [],
+   "jobs": null
+  },
+  {
+   "file": "update-llvm.yml",
+   "title": "LLVM bump",
+   "every": 384,
+   "why": "opens the LLVM bump pull request on the 1st and 15th",
+   "runs": [],
+   "jobs": null
+  },
+  {
+   "file": "update-peano.yml",
+   "title": "Peano bump",
+   "every": 168,
+   "why": "opens the Peano bump pull request each Monday",
+   "runs": [],
+   "jobs": null
+  },
+  {
+   "file": "scorecard.yml",
+   "title": "OpenSSF Scorecard",
+   "every": 168,
+   "why": "the supply-chain scan, to the Security tab",
+   "runs": [],
+   "jobs": null
+  }
+ ]
+}
